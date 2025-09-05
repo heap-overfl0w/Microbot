@@ -1,7 +1,6 @@
 package net.runelite.client.plugins.microbot.scriptbuilder;
 
 import com.google.inject.Provides;
-import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -18,7 +17,6 @@ import javax.inject.Inject;
         tags = {"script builder"},
         enabledByDefault = false
 )
-@Slf4j
 public class ScriptBuilderPlugin extends Plugin {
 
     @Inject

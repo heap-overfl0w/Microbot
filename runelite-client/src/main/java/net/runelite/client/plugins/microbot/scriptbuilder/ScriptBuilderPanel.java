@@ -6,6 +6,9 @@ import net.runelite.client.plugins.microbot.scriptbuilder.model.BlockInstance;
 import net.runelite.client.plugins.microbot.scriptbuilder.registry.BlockRegistry;
 import net.runelite.client.plugins.microbot.scriptbuilder.runner.ScriptRunner;
 import net.runelite.client.ui.ColorScheme;
+import net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef;
+import net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType;
+import net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -34,7 +37,10 @@ public class ScriptBuilderPanel extends JPanel {
     private static boolean QS_PENDING = false;
     private static long QS_SUPPRESS_UNTIL = 0L;
     private JPopupMenu openPopup;
+    private final String scriptVarKey = "scriptbuilder";
+    private JPanel variablesPanel;
     private int pairHighlightIndex = -1;
+    private JDialog execDialog;
 
     private final java.util.Deque<java.util.List<BlockInstance>> history = new java.util.ArrayDeque<>();
     private final java.util.Deque<java.util.List<BlockInstance>> redoStack = new java.util.ArrayDeque<>();
@@ -68,6 +74,51 @@ public class ScriptBuilderPanel extends JPanel {
             });
             categoryBar.add(btn);
         }
+        JButton varsBtn = new JButton("Variables");
+        varsBtn.setFocusPainted(false);
+        varsBtn.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
+        JPopupMenu varsPopup = buildVariablesPopup(varsBtn);
+        varsBtn.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseEntered(java.awt.event.MouseEvent e) {
+                if (openPopup != null && openPopup.isVisible()) openPopup.setVisible(false);
+                openPopup = varsPopup;
+                varsPopup.show(varsBtn, 0, varsBtn.getHeight());
+            }
+        });
+        categoryBar.add(varsBtn);
+        categoryBar.add(Box.createHorizontalGlue());
+        JButton startBtnTop = new JButton("Start");
+        startBtnTop.setFocusPainted(false);
+        startBtnTop.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
+        startBtnTop.addActionListener(e -> runScript());
+        JButton stopBtnTop = new JButton("Stop");
+        stopBtnTop.setFocusPainted(false);
+        stopBtnTop.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
+        stopBtnTop.addActionListener(e -> runner.stop());
+
+        Color baseGreen = ColorScheme.PROGRESS_COMPLETE_COLOR.darker();
+        Color hoverGreen = ColorScheme.PROGRESS_COMPLETE_COLOR;
+        Color baseRed = ColorScheme.PROGRESS_ERROR_COLOR.darker();
+        Color hoverRed = ColorScheme.PROGRESS_ERROR_COLOR;
+        styleActionButton(startBtnTop, baseGreen, hoverGreen);
+        styleActionButton(stopBtnTop, baseRed, hoverRed);
+        JButton saveBtnTop = new JButton("Save");
+        saveBtnTop.setFocusPainted(false);
+        saveBtnTop.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
+        saveBtnTop.addActionListener(e -> saveScript());
+        JButton loadBtnTop = new JButton("Load");
+        loadBtnTop.setFocusPainted(false);
+        loadBtnTop.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
+        loadBtnTop.addActionListener(e -> loadScript());
+        JButton consoleBtn = new JButton("Console");
+        consoleBtn.setFocusPainted(false);
+        consoleBtn.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
+        consoleBtn.addActionListener(e -> openConsoleWindow());
+        categoryBar.add(startBtnTop);
+        categoryBar.add(stopBtnTop);
+        categoryBar.add(saveBtnTop);
+        categoryBar.add(loadBtnTop);
+        categoryBar.add(consoleBtn);
         add(categoryBar, BorderLayout.NORTH);
 
         scriptList.setCellRenderer(new DefaultListCellRenderer() {
@@ -125,7 +176,6 @@ public class ScriptBuilderPanel extends JPanel {
             }
         });
 
-        // selection mode per section list is set within addSection
         scriptList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
         JButton removeBtn = new JButton("Remove");
@@ -143,16 +193,6 @@ public class ScriptBuilderPanel extends JPanel {
         JButton downBtn = new JButton("Down");
         downBtn.addActionListener(e -> moveSelected(1));
 
-        JButton runBtn = new JButton("Execute");
-        runBtn.addActionListener(e -> runScript());
-        JButton stopBtn = new JButton("Stop");
-        stopBtn.addActionListener(e -> runner.stop());
-
-        JButton saveBtn = new JButton("Save");
-        saveBtn.addActionListener(e -> saveScript());
-        JButton loadBtn = new JButton("Load");
-        loadBtn.addActionListener(e -> loadScript());
-
         JPanel center = new JPanel(new BorderLayout());
         JLabel scriptLbl = new JLabel("Script");
         scriptLbl.setHorizontalAlignment(SwingConstants.CENTER);
@@ -165,28 +205,14 @@ public class ScriptBuilderPanel extends JPanel {
         centerBtns.add(removeBtn);
         center.add(centerBtns, BorderLayout.SOUTH);
 
-        JPanel right = new JPanel(new BorderLayout());
-        JLabel execLbl = new JLabel("Execution");
-        execLbl.setHorizontalAlignment(SwingConstants.CENTER);
-        execLbl.setFont(execLbl.getFont().deriveFont(Font.BOLD));
-        right.add(execLbl, BorderLayout.NORTH);
-        logArea.setEditable(false);
-        JScrollPane logScroll = new JScrollPane(logArea);
-        right.add(logScroll, BorderLayout.CENTER);
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 4));
-        JCheckBox verboseCb = new JCheckBox("Verbose");
-        verboseCb.addActionListener(e -> runner.setVerbose(verboseCb.isSelected()));
-        actions.add(runBtn);
-        actions.add(stopBtn);
-        actions.add(saveBtn);
-        actions.add(loadBtn);
-        actions.add(verboseCb);
-        right.add(actions, BorderLayout.SOUTH);
-
+        variablesPanel = createVariablesPanel();
         JPanel centerWrap = wrap(center);
-        JPanel rightWrap = wrap(right);
-        JSplitPane inner = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, centerWrap, rightWrap);
-        add(inner, BorderLayout.CENTER);
+        JPanel variablesWrap = wrap(variablesPanel);
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, centerWrap, variablesWrap);
+        mainSplit.setResizeWeight(0.5);
+        add(mainSplit, BorderLayout.CENTER);
+
+        // Moved initial load to after variablesPanel is created
 
         scriptList.getInputMap(JComponent.WHEN_FOCUSED).put(
                 KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_Z, java.awt.event.InputEvent.CTRL_DOWN_MASK),
@@ -198,12 +224,8 @@ public class ScriptBuilderPanel extends JPanel {
                 "redo");
         scriptList.getActionMap().put("redo", new RedoAction(this));
 
-        centerWrap.setPreferredSize(new Dimension(441, centerWrap.getPreferredSize().height));
-        rightWrap.setPreferredSize(new Dimension(319, rightWrap.getPreferredSize().height));
-
-        SwingUtilities.invokeLater(() -> {
-            inner.setDividerLocation(441);
-        });
+        centerWrap.setPreferredSize(new Dimension(480, centerWrap.getPreferredSize().height));
+        variablesWrap.setPreferredSize(new Dimension(480, variablesWrap.getPreferredSize().height));
 
         scriptList.addListSelectionListener(e -> updatePairHighlight());
         scriptList.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -318,7 +340,9 @@ public class ScriptBuilderPanel extends JPanel {
             DISPATCHER_REGISTERED = true;
         }
 
-        loadBackupOrDefault();
+        if (!loadDefaultFromJson()) {
+            loadDefaultScript();
+        }
     }
 
     private JPanel wrap(JComponent c) {
@@ -327,6 +351,339 @@ public class ScriptBuilderPanel extends JPanel {
         p.setBorder(new EmptyBorder(4,4,4,4));
         p.add(c, BorderLayout.CENTER);
         return p;
+    }
+
+    private JPanel createVariablesPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        JLabel lbl = new JLabel("Variables");
+        lbl.setHorizontalAlignment(SwingConstants.CENTER);
+        lbl.setFont(lbl.getFont().deriveFont(Font.BOLD));
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBackground(ColorScheme.DARK_GRAY_COLOR);
+        header.add(lbl, BorderLayout.CENTER);
+        panel.add(header, BorderLayout.NORTH);
+
+        JPanel listPanel = new JPanel();
+        listPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
+
+        JScrollPane scroll = new JScrollPane(listPanel);
+        panel.add(scroll, BorderLayout.CENTER);
+
+        JButton addBtn = new JButton("Add Variable");
+        addBtn.addActionListener(e -> openAddVariableDialog(null));
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
+        bottom.add(addBtn);
+        panel.add(bottom, BorderLayout.SOUTH);
+
+        Runnable rebuild = () -> {
+            listPanel.removeAll();
+            GridBagLayout gbl = new GridBagLayout();
+            JPanel table = new JPanel(gbl);
+            table.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.insets = new Insets(4,6,4,6);
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.gridy = 0;
+            gbc.gridx = 0; gbc.weightx = 0.3; JLabel h0 = headerLabel("Label"); table.add(h0, gbc);
+            gbc.gridx = 1; gbc.weightx = 0.3; JLabel h1 = headerLabel("Name"); table.add(h1, gbc);
+            gbc.gridx = 2; gbc.weightx = 0.2; JLabel h2 = headerLabel("Type"); table.add(h2, gbc);
+            gbc.gridx = 3; gbc.weightx = 0.2; JLabel h3 = headerLabel("Value(s)"); table.add(h3, gbc);
+
+            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry reg = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey);
+            java.util.List<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> defs = reg.definitions();
+            java.util.Map<Integer, JComponent> editors = new java.util.HashMap<>();
+            table.putClientProperty("var_defs", defs);
+            for (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef def : defs) {
+                String fullKey = scriptVarKey + "." + def.getName();
+                gbc.gridy++;
+                JLabel c0 = cellLabel(def.getLabel() != null ? def.getLabel() : def.getName());
+                c0.putClientProperty("row", gbc.gridy - 1);
+                c0.putClientProperty("col", 0);
+                gbc.gridx = 0; gbc.weightx = 0.3; table.add(c0, gbc);
+
+                JLabel c1 = cellLabel(def.getName());
+                c1.putClientProperty("row", gbc.gridy - 1);
+                c1.putClientProperty("col", 1);
+                gbc.gridx = 1; gbc.weightx = 0.3; table.add(c1, gbc);
+
+                JLabel c2 = cellLabel(def.getType().name());
+                c2.putClientProperty("row", gbc.gridy - 1);
+                c2.putClientProperty("col", 2);
+                gbc.gridx = 2; gbc.weightx = 0.2; table.add(c2, gbc);
+
+                JComponent editor = editorFor(fullKey, def);
+                int rowIdx = gbc.gridy - 1;
+                editor.putClientProperty("row", rowIdx);
+                editor.putClientProperty("col", 3);
+                if (editor instanceof Container) {
+                    for (Component ch : ((Container) editor).getComponents()) {
+                        if (ch instanceof JComponent) {
+                            ((JComponent) ch).putClientProperty("row", rowIdx);
+                            ((JComponent) ch).putClientProperty("col", 3);
+                            if (ch instanceof Container) {
+                                for (Component ch2 : ((Container) ch).getComponents()) {
+                                    if (ch2 instanceof JComponent) {
+                                        ((JComponent) ch2).putClientProperty("row", rowIdx);
+                                        ((JComponent) ch2).putClientProperty("col", 3);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                gbc.gridx = 3; gbc.weightx = 0.2; table.add(editor, gbc);
+                editors.put(gbc.gridy - 1, editor);
+            }
+            table.putClientProperty("var_editors", editors);
+            table.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                    if (e.getClickCount() < 2) return;
+                    Component deep = SwingUtilities.getDeepestComponentAt(table, e.getX(), e.getY());
+                    if (deep == null) return;
+                    Object rowObj = null; Object colObj = null;
+                    if (deep instanceof JComponent) {
+                        rowObj = ((JComponent) deep).getClientProperty("row");
+                        colObj = ((JComponent) deep).getClientProperty("col");
+                    }
+                    if (rowObj == null) return;
+                    int rowIdx;
+                    try { rowIdx = Integer.parseInt(rowObj.toString()); } catch (Exception ex) { return; }
+                    int colIdx = -1; try { if (colObj != null) colIdx = Integer.parseInt(colObj.toString()); } catch (Exception ex) { colIdx = -1; }
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<Integer, JComponent> eds = (java.util.Map<Integer, JComponent>) table.getClientProperty("var_editors");
+                    if (eds == null) return;
+                    if (colIdx == 0) {
+                    java.util.List<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> ldefs = (java.util.List<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef>) table.getClientProperty("var_defs");
+                        if (ldefs != null && rowIdx >= 0 && rowIdx < ldefs.size()) {
+                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d = ldefs.get(rowIdx);
+                            String cur = d.getLabel() != null ? d.getLabel() : d.getName();
+                            String input = JOptionPane.showInputDialog(ScriptBuilderPanel.this, "Edit label", cur);
+                            if (input != null) {
+                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey).updateLabel(d.getName(), input);
+                                Runnable rb = (Runnable) variablesPanel.getClientProperty("vars_rebuild");
+                                if (rb != null) rb.run();
+                            }
+                        }
+                        return;
+                    }
+                    JComponent ed = eds.get(rowIdx);
+                    if (ed == null) return;
+                    ed.requestFocusInWindow();
+                    if (ed instanceof JComboBox) {
+                        @SuppressWarnings("rawtypes") JComboBox box = (JComboBox) ed;
+                        box.showPopup();
+                    } else if (ed instanceof JTextField) {
+                        ((JTextField) ed).selectAll();
+                    } else if (ed instanceof JSpinner) {
+                        JComponent editorComp = ((JSpinner) ed).getEditor();
+                        if (editorComp instanceof JSpinner.DefaultEditor) {
+                            JFormattedTextField tf = ((JSpinner.DefaultEditor) editorComp).getTextField();
+                            tf.requestFocusInWindow();
+                            tf.selectAll();
+                        } else {
+                            ed.requestFocusInWindow();
+                        }
+                    }
+                }
+            });
+            table.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+                JComponent last;
+                @Override public void mouseMoved(java.awt.event.MouseEvent e) {
+                    Component deep = SwingUtilities.getDeepestComponentAt(table, e.getX(), e.getY());
+                    if (last != null) {
+                        last.setBorder(null);
+                        last.setOpaque(false);
+                        last.repaint();
+                        last = null;
+                    }
+                    if (deep instanceof JComponent) {
+                        JComponent jc = (JComponent) deep;
+                        Object row = jc.getClientProperty("row");
+                        Object col = jc.getClientProperty("col");
+                        if (row != null && col != null) {
+                            int cidx;
+                            try { cidx = Integer.parseInt(col.toString()); } catch (Exception ex) { cidx = -1; }
+                            if (cidx != 0 && cidx != 3) {
+                                return;
+                            }
+                            jc.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+                            jc.setOpaque(true);
+                            jc.setBackground(ColorScheme.DARK_GRAY_COLOR);
+                            jc.repaint();
+                            last = jc;
+                        }
+                    }
+                }
+            });
+            listPanel.setLayout(new BorderLayout());
+            listPanel.add(table, BorderLayout.NORTH);
+            listPanel.revalidate();
+            listPanel.repaint();
+        };
+
+        panel.putClientProperty("vars_rebuild", rebuild);
+        rebuild.run();
+        return panel;
+    }
+
+    private void openAddVariableDialog(ScriptVarType preset) {
+        JDialog dlg = new JDialog(SwingUtilities.getWindowAncestor(this), "Add Variable", Dialog.ModalityType.APPLICATION_MODAL);
+        JPanel content = new JPanel(new GridBagLayout());
+        content.setBorder(new EmptyBorder(8,8,8,8));
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.insets = new Insets(4,4,4,4);
+        gc.fill = GridBagConstraints.HORIZONTAL;
+        gc.gridy = 0;
+
+        JTextField name = new JTextField();
+        JComboBox<ScriptVarType> type = new JComboBox<>(ScriptVarType.values());
+        if (preset != null) type.setSelectedItem(preset);
+        JTextField defVal = new JTextField();
+        JCheckBox defBool = new JCheckBox();
+        JPanel defContainer = new JPanel(new CardLayout());
+        defContainer.add(defVal, "TEXT");
+        defContainer.add(defBool, "BOOL");
+        JTextField label = new JTextField();
+
+        content.add(new JLabel("Name (lowerCamelCase)"), gc); gc.gridy++; content.add(name, gc); gc.gridy++;
+        content.add(new JLabel("Type"), gc); gc.gridy++; content.add(type, gc); gc.gridy++;
+        JLabel defLbl = new JLabel("Default Value");
+        content.add(defLbl, gc); gc.gridy++; content.add(defContainer, gc); gc.gridy++;
+        content.add(new JLabel("Label"), gc); gc.gridy++; content.add(label, gc); gc.gridy++;
+
+        // When ENUM is selected, use Default Value as a comma-separated list of options
+        Runnable syncTypeUi = () -> {
+            ScriptVarType t = (ScriptVarType) type.getSelectedItem();
+            CardLayout cl = (CardLayout) defContainer.getLayout();
+            if (t == ScriptVarType.ENUM) {
+                defLbl.setText("Default Value (comma-separated i.e., value1, value2)");
+                cl.show(defContainer, "TEXT");
+            } else if (t == ScriptVarType.BOOLEAN) {
+                defLbl.setText("Default Value");
+                cl.show(defContainer, "BOOL");
+            } else {
+                defLbl.setText("Default Value");
+                cl.show(defContainer, "TEXT");
+            }
+            SwingUtilities.invokeLater(() -> {
+                dlg.pack();
+                int desired = Math.max(defLbl.getPreferredSize().width + 150, 360);
+                if (dlg.getWidth() != desired) {
+                    dlg.setSize(new Dimension(desired, dlg.getHeight()));
+                }
+            });
+        };
+        type.addActionListener(e -> syncTypeUi.run());
+        syncTypeUi.run();
+
+        JButton add = new JButton("Add");
+        add.addActionListener(e -> {
+            String n = name.getText().trim();
+            ScriptVarType t = (ScriptVarType) type.getSelectedItem();
+            String dv = defVal.getText();
+            String lab = label.getText().trim().isEmpty() ? n : label.getText().trim();
+            if (n.isEmpty() || t == null) { dlg.dispose(); return; }
+            switch (t) {
+                case BOOLEAN:
+                    boolean bv = defBool.isSelected();
+                    ScriptVars.register(scriptVarKey, ScriptVarDef.bool(n, bv, lab));
+                    ScriptVars.set(scriptVarKey + "." + n, bv);
+                    break;
+                case INTEGER:
+                    int iv = 0; try { iv = Integer.parseInt(dv); } catch (Exception ignored) {}
+                    ScriptVars.register(scriptVarKey, ScriptVarDef.integer(n, iv, lab));
+                    ScriptVars.set(scriptVarKey + "." + n, iv);
+                    break;
+                case DOUBLE:
+                    double dvv = 0d; try { dvv = Double.parseDouble(dv); } catch (Exception ignored) {}
+                    ScriptVars.register(scriptVarKey, ScriptVarDef.dbl(n, dvv, lab));
+                    ScriptVars.set(scriptVarKey + "." + n, dvv);
+                    break;
+                case STRING:
+                    ScriptVars.register(scriptVarKey, ScriptVarDef.string(n, dv, lab));
+                    ScriptVars.set(scriptVarKey + "." + n, dv);
+                    break;
+                case ENUM:
+                    java.util.List<String> opts = new java.util.ArrayList<>();
+                    if (dv != null && !dv.isEmpty()) {
+                        for (String s : dv.split(",")) if (!s.trim().isEmpty()) opts.add(s.trim());
+                    }
+                    String def = opts.isEmpty() ? "" : opts.get(0);
+                    ScriptVars.register(scriptVarKey, ScriptVarDef.enm(n, opts, def, lab));
+                    ScriptVars.set(scriptVarKey + "." + n, def);
+                    break;
+                default:
+                    break;
+            }
+            Runnable rebuild = (Runnable) variablesPanel.getClientProperty("vars_rebuild");
+            if (rebuild != null) rebuild.run();
+            dlg.dispose();
+        });
+        content.add(add, gc);
+        dlg.setContentPane(content);
+        dlg.pack();
+        dlg.setLocationRelativeTo(this);
+        dlg.setVisible(true);
+    }
+
+    private JComponent editorFor(String fullKey, ScriptVarDef def) {
+        switch (def.getType()) {
+            case BOOLEAN: {
+                boolean cur = false; try { Object v = ScriptVars.get(fullKey); cur = v instanceof Boolean ? (Boolean) v : Boolean.parseBoolean(String.valueOf(v)); } catch (Exception ignored) {}
+                JCheckBox cb = new JCheckBox();
+                cb.setSelected(cur);
+                cb.addActionListener(e -> ScriptVars.set(fullKey, cb.isSelected()));
+                return cb;
+            }
+            case INTEGER: {
+                int cur = 0; try { Object v = ScriptVars.get(fullKey); cur = v instanceof Number ? ((Number) v).intValue() : Integer.parseInt(String.valueOf(v)); } catch (Exception ignored) {}
+                JSpinner sp = new JSpinner(new SpinnerNumberModel(cur, Integer.MIN_VALUE, Integer.MAX_VALUE, 1));
+                sp.addChangeListener(e -> ScriptVars.set(fullKey, ((Number) sp.getValue()).intValue()));
+                return sp;
+            }
+            case DOUBLE: {
+                double cur = 0; try { Object v = ScriptVars.get(fullKey); cur = v instanceof Number ? ((Number) v).doubleValue() : Double.parseDouble(String.valueOf(v)); } catch (Exception ignored) {}
+                JSpinner sp = new JSpinner(new SpinnerNumberModel(cur, -1e9, 1e9, 0.1));
+                sp.addChangeListener(e -> ScriptVars.set(fullKey, ((Number) sp.getValue()).doubleValue()));
+                return sp;
+            }
+            case ENUM: {
+                JComboBox<String> combo = new JComboBox<>(def.getEnumOptions().toArray(new String[0]));
+                combo.setSelectedItem(String.valueOf(ScriptVars.get(fullKey)));
+                combo.addActionListener(e -> ScriptVars.set(fullKey, combo.getSelectedItem()));
+                return combo;
+            }
+            case STRING:
+            default: {
+                JTextField tf = new JTextField(String.valueOf(ScriptVars.get(fullKey)));
+                tf.addActionListener(e -> ScriptVars.set(fullKey, tf.getText()));
+                tf.addFocusListener(new java.awt.event.FocusAdapter() { public void focusLost(java.awt.event.FocusEvent e) { ScriptVars.set(fullKey, tf.getText()); }});
+                return tf;
+            }
+        }
+    }
+
+    private JPopupMenu buildVariablesPopup(JButton owner) {
+        JPopupMenu popup = new JPopupMenu();
+        JMenuItem addAny = new JMenuItem("Add Variable..."); addAny.addActionListener(e -> openAddVariableDialog(null));
+        popup.add(addAny);
+        popup.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {}
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) { if (openPopup == popup) openPopup = null; }
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) { if (openPopup == popup) openPopup = null; }
+        });
+        return popup;
+    }
+
+    private JLabel headerLabel(String text) {
+        JLabel l = new JLabel(text);
+        l.setFont(l.getFont().deriveFont(Font.BOLD));
+        return l;
+    }
+    private JLabel cellLabel(String text) {
+        return new JLabel(text);
     }
 
     private void loadDefaultScript() {
@@ -378,29 +735,361 @@ public class ScriptBuilderPanel extends JPanel {
         return snapshotCurrent();
     }
 
-    public void saveBackupSilent() {
+    // backup functionality removed: rely on default.json at startup
+
+    private boolean loadDefaultFromJson() {
         try {
-            File f = new File(ScriptRunner.scriptsDir(), "backup.json");
-            List<BlockInstance> list = new ArrayList<>();
-            for (int i = 0; i < scriptModel.size(); i++) list.add(scriptModel.get(i));
-            ScriptRunner.saveToFile(f, list);
+            java.io.InputStream is = ScriptBuilderPanel.class.getResourceAsStream("/net/runelite/client/plugins/microbot/scriptbuilder/default.json");
+            if (is == null) {
+                File src = new File("runelite-client/src/main/java/net/runelite/client/plugins/microbot/scriptbuilder/default.json");
+                if (src.exists()) {
+                    is = new java.io.FileInputStream(src);
+                }
+            }
+            if (is == null) return false;
+            try (java.io.InputStreamReader reader = new java.io.InputStreamReader(is)) {
+                com.google.gson.JsonObject root = new com.google.gson.JsonParser().parse(reader).getAsJsonObject();
+                String key = scriptVarKey;
+                if (root.has("scriptKey") && !root.get("scriptKey").isJsonNull()) {
+                    key = root.get("scriptKey").getAsString();
+                }
+
+                if (root.has("variables") && root.get("variables").isJsonObject()) {
+                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.clear(key);
+                    com.google.gson.JsonObject vars = root.getAsJsonObject("variables");
+                    if (vars.has("definitions") && vars.get("definitions").isJsonArray()) {
+                        for (com.google.gson.JsonElement el : vars.getAsJsonArray("definitions")) {
+                            if (!el.isJsonObject()) continue;
+                            com.google.gson.JsonObject d = el.getAsJsonObject();
+                            String name = d.has("name") ? d.get("name").getAsString() : null;
+                            String type = d.has("type") ? d.get("type").getAsString() : null;
+                            String label = d.has("label") && !d.get("label").isJsonNull() ? d.get("label").getAsString() : (name != null ? name : "");
+                            if (name == null || type == null) continue;
+                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType t;
+                            try { t = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType.valueOf(type); } catch (Exception ex) { continue; }
+                            switch (t) {
+                                case BOOLEAN: {
+                                    boolean dv = d.has("default") && !d.get("default").isJsonNull() && d.get("default").getAsBoolean();
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.bool(name, dv, label));
+                                    break; }
+                                case INTEGER: {
+                                    int dv = 0; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsInt(); } catch (Exception ignored) {}
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.integer(name, dv, label));
+                                    break; }
+                                case DOUBLE: {
+                                    double dv = 0d; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsDouble(); } catch (Exception ignored) {}
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.dbl(name, dv, label));
+                                    break; }
+                                case ENUM: {
+                                    java.util.List<String> opts = new java.util.ArrayList<>();
+                                    if (d.has("options") && d.get("options").isJsonArray()) {
+                                        for (com.google.gson.JsonElement oe : d.getAsJsonArray("options")) opts.add(oe.getAsString());
+                                    }
+                                    String dv = opts.isEmpty() ? "" : opts.get(0);
+                                    if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsString();
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.enm(name, opts, dv, label));
+                                    break; }
+                                case STRING:
+                                default: {
+                                    String dv = d.has("default") && !d.get("default").isJsonNull() ? d.get("default").getAsString() : "";
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.string(name, dv, label));
+                                    break; }
+                            }
+                        }
+                    }
+                    if (vars.has("values") && vars.get("values").isJsonObject()) {
+                        com.google.gson.JsonObject vals = vars.getAsJsonObject("values");
+                        for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : vals.entrySet()) {
+                            String fullKey = key + "." + e.getKey();
+                            com.google.gson.JsonElement v = e.getValue();
+                            if (v == null || v.isJsonNull()) continue;
+                            if (v.isJsonPrimitive()) {
+                                com.google.gson.JsonPrimitive p = v.getAsJsonPrimitive();
+                                if (p.isBoolean()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsBoolean());
+                                else if (p.isNumber()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsNumber());
+                                else net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsString());
+                            } else {
+                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, v.getAsString());
+                            }
+                        }
+                    }
+                }
+
+                java.util.List<BlockInstance> loadedSteps = new java.util.ArrayList<>();
+                if (root.has("script") && root.get("script").isJsonObject()) {
+                    com.google.gson.JsonObject sc = root.getAsJsonObject("script");
+                    if (sc.has("steps") && sc.get("steps").isJsonArray()) {
+                        java.lang.reflect.Type t = new com.google.gson.reflect.TypeToken<java.util.List<BlockInstance>>(){}.getType();
+                        loadedSteps = new com.google.gson.Gson().fromJson(sc.get("steps"), t);
+                    }
+                }
+
+                if (!loadedSteps.isEmpty()) {
+                    scriptModel.clear();
+                    for (BlockInstance bi : loadedSteps) scriptModel.addElement(bi);
+                    if (!scriptModel.isEmpty()) scriptList.setSelectedIndex(0);
+                }
+
+                if (variablesPanel != null) {
+                    Runnable rebuild = (Runnable) variablesPanel.getClientProperty("vars_rebuild");
+                    if (rebuild != null) rebuild.run();
+                }
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private boolean loadCombinedFromFile(File file) {
+        try (java.io.FileReader fr = new java.io.FileReader(file)) {
+            com.google.gson.JsonElement parsed = new com.google.gson.JsonParser().parse(fr);
+            if (parsed.isJsonArray()) return false;
+            com.google.gson.JsonObject root = parsed.getAsJsonObject();
+            String key = scriptVarKey;
+            if (root.has("scriptKey") && !root.get("scriptKey").isJsonNull()) key = root.get("scriptKey").getAsString();
+            if (root.has("variables") && root.get("variables").isJsonObject()) {
+                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.clear(key);
+                com.google.gson.JsonObject vars = root.getAsJsonObject("variables");
+                if (vars.has("definitions") && vars.get("definitions").isJsonArray()) {
+                    for (com.google.gson.JsonElement el : vars.getAsJsonArray("definitions")) {
+                        if (!el.isJsonObject()) continue;
+                        com.google.gson.JsonObject d = el.getAsJsonObject();
+                        String name = d.has("name") ? d.get("name").getAsString() : null;
+                        String type = d.has("type") ? d.get("type").getAsString() : null;
+                        String label = d.has("label") && !d.get("label").isJsonNull() ? d.get("label").getAsString() : (name != null ? name : "");
+                        if (name == null || type == null) continue;
+                        net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType t;
+                        try { t = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType.valueOf(type); } catch (Exception ex) { continue; }
+                        switch (t) {
+                            case BOOLEAN: {
+                                boolean dv = d.has("default") && !d.get("default").isJsonNull() && d.get("default").getAsBoolean();
+                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.bool(name, dv, label));
+                                break; }
+                            case INTEGER: {
+                                int dv = 0; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsInt(); } catch (Exception ignored) {}
+                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.integer(name, dv, label));
+                                break; }
+                            case DOUBLE: {
+                                double dv = 0d; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsDouble(); } catch (Exception ignored) {}
+                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.dbl(name, dv, label));
+                                break; }
+                            case ENUM: {
+                                java.util.List<String> opts = new java.util.ArrayList<>();
+                                if (d.has("options") && d.get("options").isJsonArray()) {
+                                    for (com.google.gson.JsonElement oe : d.getAsJsonArray("options")) opts.add(oe.getAsString());
+                                }
+                                String dv = opts.isEmpty() ? "" : opts.get(0);
+                                if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsString();
+                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.enm(name, opts, dv, label));
+                                break; }
+                            case STRING:
+                            default: {
+                                String dv = d.has("default") && !d.get("default").isJsonNull() ? d.get("default").getAsString() : "";
+                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.string(name, dv, label));
+                                break; }
+                        }
+                    }
+                }
+                if (vars.has("values") && vars.get("values").isJsonObject()) {
+                    com.google.gson.JsonObject vals = vars.getAsJsonObject("values");
+                    for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : vals.entrySet()) {
+                        String fullKey = key + "." + e.getKey();
+                        com.google.gson.JsonElement v = e.getValue();
+                        if (v == null || v.isJsonNull()) continue;
+                        if (v.isJsonPrimitive()) {
+                            com.google.gson.JsonPrimitive p = v.getAsJsonPrimitive();
+                            if (p.isBoolean()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsBoolean());
+                            else if (p.isNumber()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsNumber());
+                            else net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsString());
+                        } else {
+                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, v.getAsString());
+                        }
+                    }
+                }
+            }
+            // If variables ended up empty (older backups), seed from default.json variables
+            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry reg = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey);
+            if (reg.definitions().isEmpty()) {
+                loadVariablesFromDefaultOnly();
+            }
+            java.util.List<BlockInstance> loadedSteps = new java.util.ArrayList<>();
+            if (root.has("script") && root.get("script").isJsonObject()) {
+                com.google.gson.JsonObject sc = root.getAsJsonObject("script");
+                if (sc.has("steps") && sc.get("steps").isJsonArray()) {
+                    java.lang.reflect.Type t = new com.google.gson.reflect.TypeToken<java.util.List<BlockInstance>>(){}.getType();
+                    loadedSteps = new com.google.gson.Gson().fromJson(sc.get("steps"), t);
+                }
+            }
+            if (!loadedSteps.isEmpty()) {
+                scriptModel.clear();
+                for (BlockInstance bi : loadedSteps) scriptModel.addElement(bi);
+                if (!scriptModel.isEmpty()) scriptList.setSelectedIndex(0);
+            }
+            if (variablesPanel != null) {
+                Runnable rebuild = (Runnable) variablesPanel.getClientProperty("vars_rebuild");
+                if (rebuild != null) rebuild.run();
+            }
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private void loadVariablesFromDefaultOnly() {
+        try {
+            java.io.InputStream is = ScriptBuilderPanel.class.getResourceAsStream("/net/runelite/client/plugins/microbot/scriptbuilder/default.json");
+            if (is == null) {
+                File src = new File("runelite-client/src/main/java/net/runelite/client/plugins/microbot/scriptbuilder/default.json");
+                if (src.exists()) is = new java.io.FileInputStream(src);
+            }
+            if (is == null) return;
+            try (java.io.InputStreamReader reader = new java.io.InputStreamReader(is)) {
+                com.google.gson.JsonObject root = new com.google.gson.JsonParser().parse(reader).getAsJsonObject();
+                String key = scriptVarKey;
+                if (root.has("scriptKey") && !root.get("scriptKey").isJsonNull()) key = root.get("scriptKey").getAsString();
+                if (root.has("variables") && root.get("variables").isJsonObject()) {
+                    com.google.gson.JsonObject vars = root.getAsJsonObject("variables");
+                    if (vars.has("definitions") && vars.get("definitions").isJsonArray()) {
+                        for (com.google.gson.JsonElement el : vars.getAsJsonArray("definitions")) {
+                            if (!el.isJsonObject()) continue;
+                            com.google.gson.JsonObject d = el.getAsJsonObject();
+                            String name = d.has("name") ? d.get("name").getAsString() : null;
+                            String type = d.has("type") ? d.get("type").getAsString() : null;
+                            String label = d.has("label") && !d.get("label").isJsonNull() ? d.get("label").getAsString() : (name != null ? name : "");
+                            if (name == null || type == null) continue;
+                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType t;
+                            try { t = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType.valueOf(type); } catch (Exception ex) { continue; }
+                            switch (t) {
+                                case BOOLEAN: {
+                                    boolean dv = d.has("default") && !d.get("default").isJsonNull() && d.get("default").getAsBoolean();
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.bool(name, dv, label));
+                                    break; }
+                                case INTEGER: {
+                                    int dv = 0; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsInt(); } catch (Exception ignored) {}
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.integer(name, dv, label));
+                                    break; }
+                                case DOUBLE: {
+                                    double dv = 0d; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsDouble(); } catch (Exception ignored) {}
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.dbl(name, dv, label));
+                                    break; }
+                                case ENUM: {
+                                    java.util.List<String> opts = new java.util.ArrayList<>();
+                                    if (d.has("options") && d.get("options").isJsonArray()) for (com.google.gson.JsonElement oe : d.getAsJsonArray("options")) opts.add(oe.getAsString());
+                                    String dv = opts.isEmpty() ? "" : opts.get(0);
+                                    if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsString();
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.enm(name, opts, dv, label));
+                                    break; }
+                                case STRING:
+                                default: {
+                                    String dv = d.has("default") && !d.get("default").isJsonNull() ? d.get("default").getAsString() : "";
+                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.string(name, dv, label));
+                                    break; }
+                            }
+                        }
+                    }
+                    if (vars.has("values") && vars.get("values").isJsonObject()) {
+                        com.google.gson.JsonObject vals = vars.getAsJsonObject("values");
+                        for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : vals.entrySet()) {
+                            String fullKey = key + "." + e.getKey();
+                            com.google.gson.JsonElement v = e.getValue();
+                            if (v == null || v.isJsonNull()) continue;
+                            if (v.isJsonPrimitive()) {
+                                com.google.gson.JsonPrimitive p = v.getAsJsonPrimitive();
+                            if (p.isBoolean()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsBoolean());
+                            else if (p.isNumber()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsNumber());
+                            else net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsString());
+                            } else {
+                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, v.getAsString());
+                            }
+                        }
+                    }
+                    if (variablesPanel != null) {
+                        Runnable rebuild = (Runnable) variablesPanel.getClientProperty("vars_rebuild");
+                        if (rebuild != null) rebuild.run();
+                    }
+                }
+            }
         } catch (Exception ignored) {}
     }
 
-    private void loadBackupOrDefault() {
-        try {
-            File f = new File(ScriptRunner.scriptsDir(), "backup.json");
-            if (f.exists()) {
-                List<BlockInstance> list = ScriptRunner.loadFromFile(f);
-                scriptModel.clear();
-                for (BlockInstance bi : list) scriptModel.addElement(bi);
-                if (!scriptModel.isEmpty()) scriptList.setSelectedIndex(0);
-            } else {
-                loadDefaultScript();
+    private com.google.gson.JsonObject buildCombinedJson() {
+        com.google.gson.JsonObject root = new com.google.gson.JsonObject();
+        root.addProperty("scriptKey", scriptVarKey);
+        // variables
+        com.google.gson.JsonObject vars = new com.google.gson.JsonObject();
+        com.google.gson.JsonArray defs = new com.google.gson.JsonArray();
+        net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry reg = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey);
+        for (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d : reg.definitions()) {
+            com.google.gson.JsonObject jd = new com.google.gson.JsonObject();
+            jd.addProperty("name", d.getName());
+            jd.addProperty("type", d.getType().name());
+            if (d.getLabel() != null) jd.addProperty("label", d.getLabel());
+            Object def = d.getDefaultValue();
+            if (def != null) {
+                if (def instanceof Number) jd.addProperty("default", (Number) def);
+                else if (def instanceof Boolean) jd.addProperty("default", (Boolean) def);
+                else jd.addProperty("default", String.valueOf(def));
             }
-        } catch (Exception e) {
-            loadDefaultScript();
+            if (d.getType() == net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType.ENUM && d.getEnumOptions() != null) {
+                com.google.gson.JsonArray opts = new com.google.gson.JsonArray();
+                for (String o : d.getEnumOptions()) opts.add(o);
+                jd.add("options", opts);
+            }
+            defs.add(jd);
         }
+        vars.add("definitions", defs);
+        com.google.gson.JsonObject values = new com.google.gson.JsonObject();
+        for (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d : reg.definitions()) {
+            String fullKey = scriptVarKey + "." + d.getName();
+            Object v = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.get(fullKey);
+            if (v == null) continue;
+            if (v instanceof Number) values.addProperty(d.getName(), (Number) v);
+            else if (v instanceof Boolean) values.addProperty(d.getName(), (Boolean) v);
+            else values.addProperty(d.getName(), String.valueOf(v));
+        }
+        vars.add("values", values);
+        root.add("variables", vars);
+        // script
+        java.util.List<BlockInstance> list = new ArrayList<>();
+        for (int i = 0; i < scriptModel.size(); i++) list.add(scriptModel.get(i));
+        com.google.gson.JsonObject sc = new com.google.gson.JsonObject();
+        sc.add("steps", new com.google.gson.Gson().toJsonTree(list));
+        root.add("script", sc);
+        return root;
+    }
+
+    private void openConsoleWindow() {
+        if (execDialog != null && execDialog.isShowing()) {
+            execDialog.toFront();
+            execDialog.requestFocus();
+            return;
+        }
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        execDialog = new JDialog(owner, "Console", Dialog.ModalityType.MODELESS);
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(new EmptyBorder(8,8,8,8));
+        JLabel title = new JLabel("Console");
+        title.setHorizontalAlignment(SwingConstants.CENTER);
+        title.setFont(title.getFont().deriveFont(Font.BOLD));
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBackground(ColorScheme.DARK_GRAY_COLOR);
+        header.add(title, BorderLayout.CENTER);
+        panel.add(header, BorderLayout.NORTH);
+
+        logArea.setEditable(false);
+        JScrollPane scroll = new JScrollPane(logArea);
+        panel.add(scroll, BorderLayout.CENTER);
+
+        JCheckBox verboseCb = new JCheckBox("Verbose");
+        verboseCb.setOpaque(false);
+        verboseCb.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 8));
+        verboseCb.addActionListener(e -> runner.setVerbose(verboseCb.isSelected()));
+        header.add(verboseCb, BorderLayout.EAST);
+
+        execDialog.setContentPane(panel);
+        execDialog.setSize(new Dimension(700, 400));
+        execDialog.setLocationRelativeTo(owner);
+        execDialog.setVisible(true);
     }
 
     private void openQuickSearchDialog() {
@@ -534,6 +1223,29 @@ public class ScriptBuilderPanel extends JPanel {
             public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) { if (openPopup == popup) openPopup = null; }
         });
         return popup;
+    }
+
+    private void styleActionButton(JButton btn, Color base, Color hover) {
+        btn.setForeground(Color.WHITE);
+        btn.setBackground(base);
+        btn.setOpaque(true);
+        btn.setContentAreaFilled(true);
+        final javax.swing.border.Border pad = BorderFactory.createEmptyBorder(4,8,4,8);
+        java.util.function.Function<Color, javax.swing.border.Border> makeBorder = c ->
+                BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(c.darker()), pad);
+        btn.setBorder(makeBorder.apply(base));
+        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btn.setRolloverEnabled(true);
+        btn.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseEntered(java.awt.event.MouseEvent e) {
+                btn.setBackground(hover);
+                btn.setBorder(makeBorder.apply(hover));
+            }
+            @Override public void mouseExited(java.awt.event.MouseEvent e) {
+                btn.setBackground(base);
+                btn.setBorder(makeBorder.apply(base));
+            }
+        });
     }
 
     
@@ -921,13 +1633,41 @@ private int findMatchingIf(int endIfIdx) {
 
     private JComponent paramField(BlockDefinition def, Class<?> type, BlockInstance inst, int index, boolean isCondition) {
         if (type == boolean.class || type == Boolean.class) {
+            JPanel panel = new JPanel(new BorderLayout(4,0));
+            JComboBox<String> varBox = variableSelectorFor(ScriptVarType.BOOLEAN);
             JCheckBox cb = new JCheckBox();
-            cb.setSelected(Boolean.parseBoolean(isCondition ? safeCondArg(inst, index) : safeArg(inst, index)));
-            cb.addActionListener(a -> {
-                if (isCondition) inst.getConditionArgs().set(index, Boolean.toString(cb.isSelected()));
-                else inst.getArgs().set(index, Boolean.toString(cb.isSelected()));
+            // Init from existing value
+            String raw = isCondition ? safeCondArg(inst, index) : safeArg(inst, index);
+            String selVar = parseVariableName(raw);
+            if (selVar != null) {
+                varBox.setSelectedItem(selVar);
+            } else {
+                cb.setSelected(Boolean.parseBoolean(raw));
+            }
+            // toggle manual editor visibility
+            Runnable syncVis = () -> {
+                boolean manual = isManualSelected(varBox);
+                cb.setVisible(manual);
+                panel.revalidate();
+                panel.repaint();
+                repack(panel);
+            };
+            varBox.addActionListener(e -> {
+                String name = (String) varBox.getSelectedItem();
+                if (name == null || name.equals("Custom")) {
+                    setArg(inst, index, isCondition, Boolean.toString(cb.isSelected()));
+                } else {
+                    setArg(inst, index, isCondition, variableToken(name));
+                }
+                syncVis.run();
             });
-            return cb;
+            cb.addActionListener(a -> {
+                if (isManualSelected(varBox)) setArg(inst, index, isCondition, Boolean.toString(cb.isSelected()));
+            });
+            panel.add(varBox, BorderLayout.WEST);
+            panel.add(cb, BorderLayout.CENTER);
+            syncVis.run();
+            return panel;
         }
         if (type.isEnum()) {
             Object[] values = type.getEnumConstants();
@@ -946,17 +1686,115 @@ private int findMatchingIf(int endIfIdx) {
         String label = labelForParam(def, index, isCondition);
         if ("action".equalsIgnoreCase(label)) {
             String[] actions = new String[]{"Use","Wear","Equip","Eat","Drink","Wield","Drop","Cast","Bury","Light","Examine"};
-            JComboBox<String> box = new JComboBox<>(actions);
-            box.setEditable(true);
+            JComboBox<String> manual = new JComboBox<>(actions);
+            manual.setEditable(true);
+            JPanel panel = new JPanel(new BorderLayout(4,0));
+            JComboBox<String> varBox = variableSelectorFor(ScriptVarType.STRING);
             String cur = isCondition ? safeCondArg(inst, index) : safeArg(inst, index);
-            if (cur != null && !cur.isEmpty()) box.setSelectedItem(cur);
-            box.addActionListener(a -> {
-                String val = String.valueOf(box.getSelectedItem());
-                if (isCondition) inst.getConditionArgs().set(index, val);
-                else inst.getArgs().set(index, val);
+            String selVar = parseVariableName(cur);
+            if (selVar != null) {
+                varBox.setSelectedItem(selVar);
+            } else if (cur != null && !cur.isEmpty()) manual.setSelectedItem(cur);
+            Runnable syncVis2 = () -> {
+                manual.setVisible(isManualSelected(varBox));
+                panel.revalidate();
+                panel.repaint();
+                repack(panel);
+            };
+            varBox.addActionListener(e -> {
+                String name = (String) varBox.getSelectedItem();
+                if (name == null || name.equals("Custom")) {
+                    String val = String.valueOf(manual.getSelectedItem());
+                    setArg(inst, index, isCondition, val);
+                } else {
+                    setArg(inst, index, isCondition, variableToken(name));
+                }
+                syncVis2.run();
             });
-            return box;
+            manual.addActionListener(a -> {
+                if (isManualSelected(varBox)) {
+                    String val = String.valueOf(manual.getSelectedItem());
+                    setArg(inst, index, isCondition, val);
+                }
+            });
+            panel.add(varBox, BorderLayout.WEST);
+            panel.add(manual, BorderLayout.CENTER);
+            syncVis2.run();
+            return panel;
         }
+        // General String or numeric types
+        if (type == String.class) {
+            JPanel panel = new JPanel(new BorderLayout(4,0));
+            JComboBox<String> varBox = variableSelectorFor(ScriptVarType.STRING);
+            JTextField tf = new JTextField(isCondition ? safeCondArg(inst, index) : safeArg(inst, index));
+            String selVar = parseVariableName(tf.getText());
+            if (selVar != null) varBox.setSelectedItem(selVar);
+            tf.setToolTipText(label);
+            tf.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+                if (isManualSelected(varBox)) setArg(inst, index, isCondition, tf.getText());
+            }));
+            varBox.addActionListener(e -> {
+                String name = (String) varBox.getSelectedItem();
+                if (name == null || name.equals("Custom")) {
+                    setArg(inst, index, isCondition, tf.getText());
+                } else {
+                    setArg(inst, index, isCondition, variableToken(name));
+                }
+                tf.setVisible(isManualSelected(varBox));
+                panel.revalidate();
+                panel.repaint();
+                repack(panel);
+            });
+            panel.add(varBox, BorderLayout.WEST);
+            panel.add(tf, BorderLayout.CENTER);
+            tf.setVisible(isManualSelected(varBox));
+            return panel;
+        }
+        if (type == int.class || type == Integer.class) {
+            JPanel panel = new JPanel(new BorderLayout(4,0));
+            JComboBox<String> varBox = variableSelectorFor(ScriptVarType.INTEGER);
+            int cur = 0; try { cur = Integer.parseInt(isCondition ? safeCondArg(inst, index) : safeArg(inst, index)); } catch (Exception ignored) {}
+            JSpinner sp = new JSpinner(new SpinnerNumberModel(cur, Integer.MIN_VALUE, Integer.MAX_VALUE, 1));
+            String selVar = parseVariableName(isCondition ? safeCondArg(inst, index) : safeArg(inst, index));
+            if (selVar != null) varBox.setSelectedItem(selVar);
+            sp.addChangeListener(e -> { if (isManualSelected(varBox)) setArg(inst, index, isCondition, String.valueOf(((Number) sp.getValue()).intValue())); });
+            varBox.addActionListener(e -> {
+                String name = (String) varBox.getSelectedItem();
+                if (name == null || name.equals("Custom")) setArg(inst, index, isCondition, String.valueOf(((Number) sp.getValue()).intValue()));
+                else setArg(inst, index, isCondition, variableToken(name));
+                sp.setVisible(isManualSelected(varBox));
+                panel.revalidate();
+                panel.repaint();
+                repack(panel);
+            });
+            panel.add(varBox, BorderLayout.WEST);
+            panel.add(sp, BorderLayout.CENTER);
+            sp.setVisible(isManualSelected(varBox));
+            return panel;
+        }
+        if (type == double.class || type == Double.class) {
+            JPanel panel = new JPanel(new BorderLayout(4,0));
+            JComboBox<String> varBox = variableSelectorFor(ScriptVarType.DOUBLE);
+            double cur = 0; try { cur = Double.parseDouble(isCondition ? safeCondArg(inst, index) : safeArg(inst, index)); } catch (Exception ignored) {}
+            JSpinner sp = new JSpinner(new SpinnerNumberModel(cur, -1e9, 1e9, 0.1));
+            String selVar = parseVariableName(isCondition ? safeCondArg(inst, index) : safeArg(inst, index));
+            if (selVar != null) varBox.setSelectedItem(selVar);
+            sp.addChangeListener(e -> { if (isManualSelected(varBox)) setArg(inst, index, isCondition, String.valueOf(((Number) sp.getValue()).doubleValue())); });
+            varBox.addActionListener(e -> {
+                String name = (String) varBox.getSelectedItem();
+                if (name == null || name.equals("Custom")) setArg(inst, index, isCondition, String.valueOf(((Number) sp.getValue()).doubleValue()));
+                else setArg(inst, index, isCondition, variableToken(name));
+                sp.setVisible(isManualSelected(varBox));
+                panel.revalidate();
+                panel.repaint();
+                repack(panel);
+            });
+            panel.add(varBox, BorderLayout.WEST);
+            panel.add(sp, BorderLayout.CENTER);
+            sp.setVisible(isManualSelected(varBox));
+            return panel;
+        }
+        // Fallback string editor
         JTextField tf = new JTextField(isCondition ? safeCondArg(inst, index) : safeArg(inst, index));
         tf.setToolTipText(label);
         tf.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
@@ -964,6 +1802,49 @@ private int findMatchingIf(int endIfIdx) {
             else inst.getArgs().set(index, tf.getText());
         }));
         return tf;
+    }
+
+    private boolean isManualSelected(JComboBox<String> varBox) {
+        Object it = varBox.getSelectedItem();
+        return it == null || "Custom".equals(it.toString());
+    }
+    private void repack(Component c) {
+        Window w = SwingUtilities.getWindowAncestor(c);
+        if (w != null) {
+            w.pack();
+        }
+    }
+    private String variableToken(String name) {
+        return "var:" + name;
+    }
+    private String parseVariableName(String raw) {
+        if (raw == null) return null;
+        if (raw.startsWith("${var:") && raw.endsWith("}")) {
+            String key = raw.substring(6, raw.length() - 1);
+            if (key.startsWith("var:")) key = key.substring(4);
+            if (key.startsWith(scriptVarKey + ".")) return key.substring(scriptVarKey.length() + 1);
+            if (!key.contains(".")) return key;
+        } else if (raw.startsWith("var:")) {
+            String key = raw.substring(4);
+            if (key.startsWith(scriptVarKey + ".")) return key.substring(scriptVarKey.length() + 1);
+            if (!key.contains(".")) return key;
+        }
+        return null;
+    }
+    private JComboBox<String> variableSelectorFor(ScriptVarType t) {
+        java.util.List<String> items = new java.util.ArrayList<>();
+        items.add("Custom");
+        for (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d : net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey).definitions()) {
+            if (d.getType() == t) items.add(d.getName());
+        }
+        JComboBox<String> box = new JComboBox<>(items.toArray(new String[0]));
+        return box;
+    }
+
+    private void setArg(BlockInstance inst, int index, boolean isCondition, String value) {
+        java.util.List<String> list = isCondition ? inst.getConditionArgs() : inst.getArgs();
+        while (list.size() <= index) list.add("");
+        list.set(index, value == null ? "" : value);
     }
 
     private String safeArg(BlockInstance inst, int idx) {
@@ -1018,7 +1899,18 @@ private int findMatchingIf(int endIfIdx) {
             if (v == null || v.isEmpty()) {
                 sb.append("?");
             } else if (t == String.class) {
-                sb.append('"').append(v).append('"');
+                String disp = v;
+                if (v.startsWith("${var:") && v.endsWith("}")) {
+                    String key = v.substring(6, v.length() - 1);
+                    if (key.startsWith("var:")) key = key.substring(4);
+                    if (key.startsWith(scriptVarKey + ".")) key = key.substring(scriptVarKey.length() + 1);
+                    disp = "var:" + key;
+                }
+                if (disp.startsWith("var:")) {
+                    sb.append(disp);
+                } else {
+                    sb.append('"').append(disp).append('"');
+                }
             } else if (t.isEnum()) {
                 sb.append(t.getSimpleName()).append('.').append(v);
             } else {
@@ -1080,10 +1972,11 @@ private int findMatchingIf(int endIfIdx) {
         String name = JOptionPane.showInputDialog(this, "Script name");
         if (name == null || name.trim().isEmpty()) return;
         File f = new File(ScriptRunner.scriptsDir(), name + ".json");
-        List<BlockInstance> list = new ArrayList<>();
-        for (int i = 0; i < scriptModel.size(); i++) list.add(scriptModel.get(i));
         try {
-            ScriptRunner.saveToFile(f, list);
+            com.google.gson.JsonObject root = buildCombinedJson();
+            try (java.io.FileWriter fw = new java.io.FileWriter(f)) {
+                fw.write(new com.google.gson.Gson().toJson(root));
+            }
             JOptionPane.showMessageDialog(this, "Saved: " + f.getAbsolutePath());
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Save failed: " + ex.getMessage());
@@ -1096,9 +1989,11 @@ private int findMatchingIf(int endIfIdx) {
         int res = fc.showOpenDialog(this);
         if (res == JFileChooser.APPROVE_OPTION) {
             try {
-                List<BlockInstance> list = ScriptRunner.loadFromFile(fc.getSelectedFile());
-                scriptModel.clear();
-                for (BlockInstance bi : list) scriptModel.addElement(bi);
+                if (!loadCombinedFromFile(fc.getSelectedFile())) {
+                    List<BlockInstance> list = ScriptRunner.loadFromFile(fc.getSelectedFile());
+                    scriptModel.clear();
+                    for (BlockInstance bi : list) scriptModel.addElement(bi);
+                }
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Load failed: " + ex.getMessage());
             }

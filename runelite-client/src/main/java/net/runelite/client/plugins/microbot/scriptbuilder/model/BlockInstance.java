@@ -17,9 +17,9 @@ public class BlockInstance {
     private String definitionId;
     private List<String> args = new ArrayList<>();
 
-    private String conditionDefinitionId; // for IF
-    private List<String> conditionArgs = new ArrayList<>(); // for IF
-    private boolean negateCondition = false; // for IF
+    private String conditionDefinitionId;
+    private List<String> conditionArgs = new ArrayList<>();
+    private boolean negateCondition = false;
 
-    private String comment; // for COMMENT
+    private String comment;
 }

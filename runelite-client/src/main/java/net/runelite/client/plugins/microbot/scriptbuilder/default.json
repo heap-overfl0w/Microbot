@@ -1,0 +1,83 @@
+{
+  "scriptKey": "scriptbuilder",
+  "variables": {
+    "definitions": [
+      { "name": "gem", "type": "STRING", "label": "Gem", "default": "Diamond" },
+      { "name": "qty", "type": "INTEGER", "label": "Quantity", "default": 2 }
+    ],
+    "values": {
+      "gem": "Diamond",
+      "qty": 2
+    }
+  },
+  "script": {
+    "steps": [
+      {
+        "kind": "IF",
+        "definitionId": null,
+        "args": [],
+        "conditionDefinitionId": "Rs2Bank.isOpen()",
+        "conditionArgs": [],
+        "negateCondition": true,
+        "comment": null
+      },
+      {
+        "kind": "ACTION",
+        "definitionId": "Rs2Bank.walkToBankAndUseBank()",
+        "args": [],
+        "conditionDefinitionId": null,
+        "conditionArgs": [],
+        "negateCondition": false,
+        "comment": null
+      },
+      {
+        "kind": "ACTION",
+        "definitionId": "SLEEPS.SLEEPUNTIL",
+        "args": ["3000"],
+        "conditionDefinitionId": "Rs2Bank.isOpen()",
+        "conditionArgs": [],
+        "negateCondition": false,
+        "comment": null
+      },
+      {
+        "kind": "IF",
+        "definitionId": null,
+        "args": [],
+        "conditionDefinitionId": "Rs2Bank.isOpen()",
+        "conditionArgs": [],
+        "negateCondition": false,
+        "comment": null
+      },
+      {
+        "kind": "ACTION",
+        "definitionId": "Rs2Bank.withdrawX(String,int)",
+        "args": [
+          "var:gem",
+          "var:qty"
+        ],
+        "conditionDefinitionId": null,
+        "conditionArgs": [],
+        "negateCondition": false,
+        "comment": null
+      },
+      {
+        "kind": "ENDIF",
+        "definitionId": null,
+        "args": [],
+        "conditionDefinitionId": null,
+        "conditionArgs": [],
+        "negateCondition": false,
+        "comment": null
+      },
+      {
+        "kind": "ENDIF",
+        "definitionId": null,
+        "args": [],
+        "conditionDefinitionId": null,
+        "conditionArgs": [],
+        "negateCondition": false,
+        "comment": null
+      }
+    ]
+  }
+}
