@@ -49,6 +49,11 @@ public final class ScriptVars {
         reg(k.script).onChange(k.name, listener);
     }
 
+    public static void remove(String fullKey) {
+        Key k = Key.of(fullKey);
+        reg(k.script).remove(k.name);
+    }
+
     public static void clear(String scriptKey) {
         reg(scriptKey).clear();
     }

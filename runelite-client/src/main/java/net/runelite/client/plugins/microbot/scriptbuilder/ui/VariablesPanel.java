@@ -13,6 +13,8 @@ import java.awt.*;
 import java.util.Map;
 
 public class VariablesPanel extends JPanel {
+    private JPanel content;
+
     public VariablesPanel() {
         setLayout(new BorderLayout());
         setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -23,10 +25,22 @@ public class VariablesPanel extends JPanel {
         title.setForeground(Color.WHITE);
         add(title, BorderLayout.NORTH);
 
-        JPanel content = new JPanel();
+        content = new JPanel();
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         content.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
+        JScrollPane scroll = new JScrollPane(content);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getViewport().setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        add(scroll, BorderLayout.CENTER);
+
+        // No bottom actions; removal is via right-click on rows
+
+        rebuildContent();
+    }
+
+    private void rebuildContent() {
+        content.removeAll();
         for (Map.Entry<String, ScriptVarRegistry> e : ScriptVarRegistry.registries().entrySet()) {
             String script = e.getKey();
             JPanel section = new JPanel();
@@ -35,25 +49,15 @@ public class VariablesPanel extends JPanel {
             section.setBorder(BorderFactory.createTitledBorder(script));
 
             for (ScriptVarDef def : e.getValue().definitions()) {
-                JPanel row = new JPanel(new BorderLayout());
-                row.setBackground(ColorScheme.DARK_GRAY_COLOR);
-                JLabel label = new JLabel(def.getLabel() != null ? def.getLabel() : def.getName());
-                label.setForeground(Color.WHITE);
-                row.add(label, BorderLayout.WEST);
-
-                JComponent editor = createEditor(script + "." + def.getName(), def);
-                row.add(editor, BorderLayout.EAST);
-
+                VariableRow row = new VariableRow(script, def);
                 section.add(row);
             }
+
             content.add(section);
             content.add(Box.createVerticalStrut(8));
         }
-
-        JScrollPane scroll = new JScrollPane(content);
-        scroll.setBorder(BorderFactory.createEmptyBorder());
-        scroll.getViewport().setBackground(ColorScheme.DARKER_GRAY_COLOR);
-        add(scroll, BorderLayout.CENTER);
+        content.revalidate();
+        content.repaint();
     }
 
     private JComponent createEditor(String fullKey, ScriptVarDef def) {
@@ -97,4 +101,50 @@ public class VariablesPanel extends JPanel {
             }
         }
     }
+
+    
+
+    private final class VariableRow extends JPanel {
+        private final String script;
+        private final ScriptVarDef def;
+        private final String fullKey;
+
+        private VariableRow(String script, ScriptVarDef def) {
+            super(new BorderLayout());
+            this.script = script;
+            this.def = def;
+            this.fullKey = script + "." + def.getName();
+
+            setBackground(ColorScheme.DARK_GRAY_COLOR);
+            JLabel label = new JLabel(def.getLabel() != null ? def.getLabel() : def.getName());
+            label.setForeground(Color.WHITE);
+            add(label, BorderLayout.WEST);
+
+            JComponent editor = createEditor(fullKey, def);
+            add(editor, BorderLayout.EAST);
+
+            JPopupMenu menu = new JPopupMenu();
+            JMenuItem remove = new JMenuItem("Remove");
+            remove.addActionListener(e -> {
+                int res = JOptionPane.showConfirmDialog(VariablesPanel.this, "Remove variable '" + def.getName() + "'?", "Confirm Remove", JOptionPane.OK_CANCEL_OPTION);
+                if (res != JOptionPane.OK_OPTION) return;
+                ScriptVarRegistry.forKey(script).remove(def.getName());
+                rebuildContent();
+            });
+            menu.add(remove);
+
+            java.awt.event.MouseAdapter popup = new java.awt.event.MouseAdapter() {
+                private void maybe(java.awt.event.MouseEvent e) {
+                    if (e.isPopupTrigger()) menu.show(VariableRow.this, e.getX(), e.getY());
+                }
+                @Override public void mousePressed(java.awt.event.MouseEvent e) { maybe(e); }
+                @Override public void mouseReleased(java.awt.event.MouseEvent e) { maybe(e); }
+            };
+            addMouseListener(popup);
+            for (Component c : getComponents()) c.addMouseListener(popup);
+            setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        }
+    }
+
+    
 }

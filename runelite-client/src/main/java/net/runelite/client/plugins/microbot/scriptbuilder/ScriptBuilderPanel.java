@@ -464,6 +464,32 @@ public class ScriptBuilderPanel extends JPanel {
                 editors.put(gbc.gridy - 1, editor);
             }
             table.putClientProperty("var_editors", editors);
+            panel.putClientProperty("vars_table", table);
+            table.addMouseListener(new java.awt.event.MouseAdapter() {
+                private void maybePopup(java.awt.event.MouseEvent e) {
+                    if (!e.isPopupTrigger()) return;
+                    Component deep = SwingUtilities.getDeepestComponentAt(table, e.getX(), e.getY());
+                    if (!(deep instanceof JComponent)) return;
+                    Object rowObj = ((JComponent) deep).getClientProperty("row");
+                    if (rowObj == null) return;
+                    int rowIdx; try { rowIdx = Integer.parseInt(rowObj.toString()); } catch (Exception ex) { return; }
+                    if (rowIdx < 0 || rowIdx >= defs.size()) return;
+                    ScriptVarDef d = defs.get(rowIdx);
+                    JPopupMenu menu = new JPopupMenu();
+                    JMenuItem remove = new JMenuItem("Remove");
+                    remove.addActionListener(ev -> {
+                        int res = JOptionPane.showConfirmDialog(panel, "Remove variable '" + d.getName() + "'?", "Confirm Remove", JOptionPane.OK_CANCEL_OPTION);
+                        if (res != JOptionPane.OK_OPTION) return;
+                        ScriptVarRegistry.forKey(scriptVarKey).remove(d.getName());
+                        Runnable rb = (Runnable) variablesPanel.getClientProperty("vars_rebuild");
+                        if (rb != null) rb.run();
+                    });
+                    menu.add(remove);
+                    menu.show(table, e.getX(), e.getY());
+                }
+                @Override public void mousePressed(java.awt.event.MouseEvent e) { maybePopup(e); }
+                @Override public void mouseReleased(java.awt.event.MouseEvent e) { maybePopup(e); }
+            });
             table.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override public void mouseClicked(java.awt.event.MouseEvent e) {
                     if (e.getClickCount() < 2) return;
@@ -554,6 +580,8 @@ public class ScriptBuilderPanel extends JPanel {
         rebuild.run();
         return panel;
     }
+
+    
 
     private void openAddVariableDialog(ScriptVarType preset) {
         JDialog dlg = new JDialog(SwingUtilities.getWindowAncestor(this), "Add Variable", Dialog.ModalityType.APPLICATION_MODAL);
@@ -944,11 +972,9 @@ public class ScriptBuilderPanel extends JPanel {
                     }
                 }
 
-                if (!loadedSteps.isEmpty()) {
-                    scriptModel.clear();
-                    for (BlockInstance bi : loadedSteps) scriptModel.addElement(bi);
-                    if (!scriptModel.isEmpty()) scriptList.setSelectedIndex(0);
-                }
+                scriptModel.clear();
+                for (BlockInstance bi : loadedSteps) scriptModel.addElement(bi);
+                if (!scriptModel.isEmpty()) scriptList.setSelectedIndex(0);
 
                 if (variablesPanel != null) {
                     Runnable rebuild = (Runnable) variablesPanel.getClientProperty("vars_rebuild");
@@ -1040,11 +1066,9 @@ public class ScriptBuilderPanel extends JPanel {
                     loadedSteps = new com.google.gson.Gson().fromJson(sc.get("steps"), t);
                 }
             }
-            if (!loadedSteps.isEmpty()) {
-                scriptModel.clear();
-                for (BlockInstance bi : loadedSteps) scriptModel.addElement(bi);
-                if (!scriptModel.isEmpty()) scriptList.setSelectedIndex(0);
-            }
+            scriptModel.clear();
+            for (BlockInstance bi : loadedSteps) scriptModel.addElement(bi);
+            if (!scriptModel.isEmpty()) scriptList.setSelectedIndex(0);
             if (variablesPanel != null) {
                 Runnable rebuild = (Runnable) variablesPanel.getClientProperty("vars_rebuild");
                 if (rebuild != null) rebuild.run();
@@ -1526,7 +1550,6 @@ private int findMatchingIf(int endIfIdx) {
         end.setKind(BlockInstance.Kind.ENDIF);
         scriptModel.add(idx + 1, end);
         scriptList.setSelectedIndex(idx);
-        openParamEditor(ifInst);
     }
 
     private BlockDefinition guessConditionForAction(BlockDefinition actionDef) {

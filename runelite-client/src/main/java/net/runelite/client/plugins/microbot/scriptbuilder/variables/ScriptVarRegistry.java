@@ -135,6 +135,12 @@ public final class ScriptVarRegistry {
         entries.put(name, ne);
     }
 
+    public void remove(String name) {
+        Entry e = entries.remove(name);
+        if (e == null) return;
+        Microbot.getConfigManager().unsetConfiguration(GROUP, e.fullKey);
+    }
+
     public void clear() {
         entries.clear();
     }
