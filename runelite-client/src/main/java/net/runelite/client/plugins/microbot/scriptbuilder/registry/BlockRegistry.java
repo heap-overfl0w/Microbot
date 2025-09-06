@@ -8,6 +8,21 @@ import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
 import net.runelite.client.plugins.microbot.util.equipment.Rs2Equipment;
 import net.runelite.client.plugins.microbot.util.widget.Rs2Widget;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
+import net.runelite.client.plugins.microbot.util.npc.Rs2Npc;
+import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
+import net.runelite.client.plugins.microbot.util.grounditem.Rs2GroundItem;
+import net.runelite.client.plugins.microbot.util.dialogues.Rs2Dialogue;
+import net.runelite.client.plugins.microbot.util.camera.Rs2Camera;
+import net.runelite.client.plugins.microbot.util.keyboard.Rs2Keyboard;
+import net.runelite.client.plugins.microbot.util.tabs.Rs2Tab;
+import net.runelite.client.plugins.microbot.util.settings.Rs2Settings;
+import net.runelite.client.plugins.microbot.util.prayer.Rs2Prayer;
+import net.runelite.client.plugins.microbot.util.magic.Rs2Magic;
+import net.runelite.client.plugins.microbot.util.combat.Rs2Combat;
+import net.runelite.client.plugins.microbot.util.depositbox.Rs2DepositBox;
+import net.runelite.client.plugins.microbot.util.shop.Rs2Shop;
+import net.runelite.client.plugins.microbot.util.grandexchange.Rs2GrandExchange;
+import net.runelite.client.plugins.microbot.util.player.Rs2Player;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -23,6 +38,21 @@ public class BlockRegistry {
         registerFromClass(Rs2Inventory.class, "Inventory");
         registerFromClass(Rs2Equipment.class, "Equipment");
         registerFromClass(Rs2Widget.class, "Widgets");
+        registerFromClass(Rs2Npc.class, "NPC");
+        registerFromClass(Rs2GameObject.class, "Objects");
+        registerFromClass(Rs2GroundItem.class, "Ground Items");
+        registerFromClass(Rs2Dialogue.class, "Dialogue");
+        registerFromClass(Rs2Camera.class, "Camera");
+        registerFromClass(Rs2Keyboard.class, "Keyboard");
+        registerFromClass(Rs2Tab.class, "Tabs");
+        registerFromClass(Rs2Settings.class, "Settings");
+        registerFromClass(Rs2Prayer.class, "Prayer");
+        registerFromClass(Rs2Magic.class, "Magic");
+        registerFromClass(Rs2Combat.class, "Combat");
+        registerFromClass(Rs2DepositBox.class, "Deposit Box");
+        registerFromClass(Rs2Shop.class, "Shop");
+        registerFromClass(Rs2GrandExchange.class, "Grand Exchange");
+        registerFromClass(Rs2Player.class, "Player");
         registerFromClassFiltered(Global.class, "Sleeps",
                 m -> {
                     String n = m.getName();

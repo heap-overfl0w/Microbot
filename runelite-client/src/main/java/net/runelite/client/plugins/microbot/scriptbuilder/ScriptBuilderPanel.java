@@ -59,33 +59,24 @@ public class ScriptBuilderPanel extends JPanel {
 
         JMenuBar categoryBar = new JMenuBar();
         categoryBar.setBorderPainted(false);
-        for (Section s : sections) {
-            JButton btn = new JButton(s.title);
-            btn.setFocusPainted(false);
-            btn.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
-
-            JPopupMenu popup = buildCategoryPopup(s);
-            btn.addMouseListener(new java.awt.event.MouseAdapter() {
-                @Override public void mouseEntered(java.awt.event.MouseEvent e) {
-                    if (openPopup != null && openPopup.isVisible()) openPopup.setVisible(false);
-                    openPopup = popup;
-                    popup.show(btn, 0, btn.getHeight());
-                }
-            });
-            categoryBar.add(btn);
-        }
-        JButton varsBtn = new JButton("Variables");
-        varsBtn.setFocusPainted(false);
-        varsBtn.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
-        JPopupMenu varsPopup = buildVariablesPopup(varsBtn);
-        varsBtn.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override public void mouseEntered(java.awt.event.MouseEvent e) {
-                if (openPopup != null && openPopup.isVisible()) openPopup.setVisible(false);
-                openPopup = varsPopup;
-                varsPopup.show(varsBtn, 0, varsBtn.getHeight());
-            }
+        JButton categoriesBtn = new JButton("Categories");
+        categoriesBtn.setFocusPainted(false);
+        categoriesBtn.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
+        categoriesBtn.setOpaque(true);
+        final Color catBase = categoriesBtn.getBackground();
+        final Color catHover = catBase.brighter();
+        categoriesBtn.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseEntered(java.awt.event.MouseEvent e) { categoriesBtn.setBackground(catHover); }
+            @Override public void mouseExited(java.awt.event.MouseEvent e) { categoriesBtn.setBackground(catBase); }
         });
-        categoryBar.add(varsBtn);
+        JPopupMenu groupsPopup = buildGroupsPopup(categoriesBtn);
+        categoriesBtn.addActionListener(e -> {
+            if (openPopup != null && openPopup.isVisible()) openPopup.setVisible(false);
+            openPopup = groupsPopup;
+            groupsPopup.show(categoriesBtn, 0, categoriesBtn.getHeight());
+        });
+        categoryBar.add(categoriesBtn);
+        // Variables button removed; variables are discoverable via the Variables panel
         categoryBar.add(Box.createHorizontalGlue());
         JButton startBtnTop = new JButton("Start");
         startBtnTop.setFocusPainted(false);
@@ -119,7 +110,12 @@ public class ScriptBuilderPanel extends JPanel {
         categoryBar.add(saveBtnTop);
         categoryBar.add(loadBtnTop);
         categoryBar.add(consoleBtn);
-        add(categoryBar, BorderLayout.NORTH);
+        JScrollPane categoryScroll = new JScrollPane(categoryBar,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        categoryScroll.setBorder(BorderFactory.createEmptyBorder());
+        categoryScroll.getHorizontalScrollBar().setUnitIncrement(32);
+        add(categoryScroll, BorderLayout.NORTH);
 
         scriptList.setCellRenderer(new DefaultListCellRenderer() {
             @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
@@ -160,11 +156,9 @@ public class ScriptBuilderPanel extends JPanel {
                     }
                     c.setFont(c.getFont().deriveFont(Font.BOLD));
                 } else if (bi.getKind() == BlockInstance.Kind.ELSE) {
-                    if (pad.length() >= 2) pad.setLength(pad.length()-2);
                     c.setText(pad + "ELSE");
                     c.setFont(c.getFont().deriveFont(Font.BOLD));
                 } else if (bi.getKind() == BlockInstance.Kind.ENDIF) {
-                    if (pad.length() >= 2) pad.setLength(pad.length()-2);
                     c.setText(pad + "END IF");
                     c.setFont(c.getFont().deriveFont(Font.BOLD));
                 }
@@ -185,6 +179,22 @@ public class ScriptBuilderPanel extends JPanel {
             int res = JOptionPane.showConfirmDialog(this, "Remove selected line?", "Confirm", JOptionPane.YES_NO_OPTION);
             if (res != JOptionPane.YES_OPTION) return;
             pushSnapshot();
+            BlockInstance k = scriptModel.get(idx);
+            if (k.getKind() == BlockInstance.Kind.IF) {
+                int end = findMatchingEndIf(idx);
+                if (end >= 0) {
+                    scriptModel.remove(end);
+                    scriptModel.remove(idx);
+                    return;
+                }
+            } else if (k.getKind() == BlockInstance.Kind.ENDIF) {
+                int ifIdx = findMatchingIf(idx);
+                if (ifIdx >= 0) {
+                    scriptModel.remove(idx);
+                    scriptModel.remove(ifIdx);
+                    return;
+                }
+            }
             scriptModel.remove(idx);
         });
 
@@ -266,6 +276,22 @@ public class ScriptBuilderPanel extends JPanel {
                     int res = JOptionPane.showConfirmDialog(ScriptBuilderPanel.this, "Remove selected line?", "Confirm Remove", JOptionPane.YES_NO_OPTION);
                     if (res != JOptionPane.YES_OPTION) return;
                     pushSnapshot();
+                    BlockInstance k = scriptModel.get(sel);
+                    if (k.getKind() == BlockInstance.Kind.IF) {
+                        int end = findMatchingEndIf(sel);
+                        if (end >= 0) {
+                            scriptModel.remove(end);
+                            scriptModel.remove(sel);
+                            return;
+                        }
+                    } else if (k.getKind() == BlockInstance.Kind.ENDIF) {
+                        int ifIdx = findMatchingIf(sel);
+                        if (ifIdx >= 0) {
+                            scriptModel.remove(sel);
+                            scriptModel.remove(ifIdx);
+                            return;
+                        }
+                    }
                     scriptModel.remove(sel);
                 });
                 menu.add(addComment);
@@ -667,8 +693,103 @@ public class ScriptBuilderPanel extends JPanel {
 
     private JPopupMenu buildVariablesPopup(JButton owner) {
         JPopupMenu popup = new JPopupMenu();
-        JMenuItem addAny = new JMenuItem("Add Variable..."); addAny.addActionListener(e -> openAddVariableDialog(null));
+        JMenuItem addAny = new JMenuItem("Add Variable...");
+        addAny.addActionListener(e -> openAddVariableDialog(null));
         popup.add(addAny);
+        popup.add(new JSeparator());
+
+        java.util.List<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> defs =
+                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry
+                        .forKey(scriptVarKey).definitions();
+
+        if (defs.isEmpty()) {
+            JMenuItem none = new JMenuItem("No variables defined");
+            none.setEnabled(false);
+            popup.add(none);
+        } else {
+            DefaultListModel<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> model = new DefaultListModel<>();
+            defs.forEach(model::addElement);
+            JList<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> list = new JList<>(model);
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setVisibleRowCount(-1);
+            list.setCellRenderer(new DefaultListCellRenderer() {
+                @Override public Component getListCellRendererComponent(JList<?> l, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                    JLabel c = (JLabel) super.getListCellRendererComponent(l, value, index, isSelected, cellHasFocus);
+                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d = (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef) value;
+                    String label = d.getLabel() != null && !d.getLabel().isEmpty() ? d.getLabel() : d.getName();
+                    c.setText(label + " (" + d.getType().name().toLowerCase() + ")");
+                    return c;
+                }
+            });
+            list.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                    if (e.getClickCount() >= 1) {
+                        net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d = list.getSelectedValue();
+                        if (d != null) {
+                            String token = "var:" + d.getName();
+                            try {
+                                Toolkit.getDefaultToolkit().getSystemClipboard()
+                                        .setContents(new java.awt.datatransfer.StringSelection(token), null);
+                            } catch (Exception ignored) {}
+                            popup.setVisible(false);
+                        }
+                    }
+                }
+            });
+            JScrollPane sp = new JScrollPane(list);
+            int rowH = Math.max(list.getFixedCellHeight() != -1 ? list.getFixedCellHeight() : 22, 20);
+            int maxH = Math.min(300, Math.max(140, defs.size() * rowH + 6));
+            sp.setPreferredSize(new Dimension(240, maxH));
+            popup.add(sp);
+        }
+
+        popup.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {}
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) { if (openPopup == popup) openPopup = null; }
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) { if (openPopup == popup) openPopup = null; }
+        });
+        return popup;
+    }
+
+    private JPopupMenu buildGroupsPopup(JButton owner) {
+        JPopupMenu popup = new JPopupMenu();
+        DefaultListModel<Section> model = new DefaultListModel<>();
+        for (Section s : sections) model.addElement(s);
+        JList<Section> list = new JList<>(model);
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setCellRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> l, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                JLabel c = (JLabel) super.getListCellRendererComponent(l, value, index, isSelected, cellHasFocus);
+                Section s = (Section) value;
+                c.setText(s.title);
+                return c;
+            }
+        });
+        list.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override public void mouseMoved(java.awt.event.MouseEvent e) {
+                int idx = list.locationToIndex(e.getPoint());
+                if (idx >= 0) list.setSelectedIndex(idx);
+            }
+        });
+        list.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() >= 1) {
+                    Section s = list.getSelectedValue();
+                    if (s != null) {
+                        popup.setVisible(false);
+                        JPopupMenu cat = buildCategoryPopup(s);
+                        if (openPopup != null && openPopup.isVisible()) openPopup.setVisible(false);
+                        openPopup = cat;
+                        cat.show(owner, 0, owner.getHeight());
+                    }
+                }
+            }
+        });
+        JScrollPane sp = new JScrollPane(list);
+        int rowH = Math.max(list.getFixedCellHeight() != -1 ? list.getFixedCellHeight() : 22, 20);
+        int maxH = Math.min(320, Math.max(120, sections.size() * rowH + 4));
+        sp.setPreferredSize(new Dimension(220, maxH));
+        popup.add(sp);
         popup.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
             public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {}
             public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) { if (openPopup == popup) openPopup = null; }
@@ -1201,6 +1322,12 @@ public class ScriptBuilderPanel extends JPanel {
                 BlockDefinition d = (BlockDefinition) value;
                 c.setText(d.getDisplayName());
                 return c;
+            }
+        });
+        list.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override public void mouseMoved(java.awt.event.MouseEvent e) {
+                int idx = list.locationToIndex(e.getPoint());
+                if (idx >= 0) list.setSelectedIndex(idx);
             }
         });
         list.addMouseListener(new java.awt.event.MouseAdapter() {
