@@ -53,6 +53,32 @@ public class BlockRegistry {
         registerFromClass(Rs2Shop.class, "Shop");
         registerFromClass(Rs2GrandExchange.class, "Grand Exchange");
         registerFromClass(Rs2Player.class, "Player");
+        registerFromClass(net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarBlocks.class, "Vars");
+        {
+            java.util.List<BlockDefinition> copies = new java.util.ArrayList<>();
+            for (BlockDefinition d : new java.util.ArrayList<>(byId.values())) {
+                boolean aliasable = (d.getDeclaringClass() == net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarBlocks.class)
+                        && d.getMethod() != null;
+                if (aliasable) {
+                    String sig = java.util.Arrays.stream(d.getMethod().getParameterTypes())
+                            .map(Class::getSimpleName)
+                            .collect(java.util.stream.Collectors.joining(",", "(", ")"));
+                    String aliasId = "Vars." + d.getMethod().getName() + sig;
+                    if (!byId.containsKey(aliasId)) {
+                        BlockDefinition alias = BlockDefinition.builder()
+                                .id(aliasId)
+                                .displayName(d.getDisplayName())
+                                .group(d.getGroup())
+                                .declaringClass(d.getDeclaringClass())
+                                .method(d.getMethod())
+                                .params(d.getParams())
+                                .build();
+                        copies.add(alias);
+                    }
+                }
+            }
+            for (BlockDefinition c : copies) byId.put(c.getId(), c);
+        }
         registerFromClassFiltered(Global.class, "Sleeps",
                 m -> {
                     String n = m.getName();

@@ -39,6 +39,12 @@ public class ScriptRunner {
     private volatile Consumer<String> logSink;
     @Setter
     private volatile boolean verbose = false;
+    @Setter
+    private volatile boolean loopEnabled = false;
+    @Setter
+    private volatile long loopDelayMs = 0L;
+    private volatile boolean failureDetected = false;
+    private volatile long nextLoopAt = 0L;
     private int[] ifToElse;
     private int[] ifToEnd;
     private int[] elseToEnd;
@@ -56,22 +62,17 @@ public class ScriptRunner {
         steps.addAll(instances);
         index = 0;
         computeControlPairs();
-        if (verbose) {
-            
-            for (int i = 0; i < steps.size(); i++) {
-                BlockInstance s = steps.get(i);
-                String d = s.getKind() == BlockInstance.Kind.ACTION ? String.valueOf(s.getDefinitionId()) : String.valueOf(s.getKind());
-                
-            }
-        }
+        log("Loaded " + steps.size() + " step(s)");
     }
 
     public synchronized void start() {
         if (running) return;
         running = true;
         index = 0;
+        failureDetected = false;
+        nextLoopAt = 0L;
         executor.scheduleAtFixedRate(this::tick, 0, 300, TimeUnit.MILLISECONDS);
-        
+        log("Script started (" + steps.size() + " step(s))");
     }
 
     public synchronized void stop() {
@@ -80,17 +81,38 @@ public class ScriptRunner {
             inFlight.cancel(true);
             inFlight = null;
         }
-        
+        nextLoopAt = 0L;
+        log("Script stopped");
     }
 
     private void tick() {
         try {
             if (!running) return;
             if (index >= steps.size()) {
-                Microbot.status = "Script finished";
-                
-                stop();
-                return;
+                if (loopEnabled && !failureDetected && !steps.isEmpty()) {
+                    long now = System.currentTimeMillis();
+                    if (nextLoopAt == 0L) {
+                        nextLoopAt = now + Math.max(0L, loopDelayMs);
+                        long wait = Math.max(0L, nextLoopAt - now);
+                        Microbot.status = "Looping in " + wait + "ms";
+                        log("Looping in " + wait + "ms");
+                        return;
+                    }
+                    if (now >= nextLoopAt) {
+                        log("Looping to start");
+                        nextLoopAt = 0L;
+                        index = 0;
+                    } else {
+                        long wait = nextLoopAt - now;
+                        Microbot.status = "Looping in " + wait + "ms";
+                        return;
+                    }
+                } else {
+                    Microbot.status = "Script finished";
+                    log("Script finished");
+                    stop();
+                    return;
+                }
             }
 
             if (inFlight == null) {
@@ -100,7 +122,8 @@ public class ScriptRunner {
                     case ACTION: {
                         BlockDefinition def = registry.get(step.getDefinitionId());
                         if (def == null) {
-                            
+                            log("Unknown action: " + step.getDefinitionId());
+                            if (loopEnabled) { failureDetected = true; stop(); return; }
                             index++;
                             return;
                         }
@@ -115,7 +138,8 @@ public class ScriptRunner {
                             }
                             final int timeoutMs = timeoutParsed;
                             if (condDef == null) {
-                                
+                                log("SleepUntil missing condition");
+                                if (loopEnabled) { failureDetected = true; stop(); return; }
                                 index++;
                                 break;
                             }
@@ -123,7 +147,7 @@ public class ScriptRunner {
                             final BlockDefinition condRef = condDef;
                             final Object[] condArgs = cargs;
                             Microbot.status = "Waiting: " + condRef.getDisplayName();
-                            
+                            if (verbose) log("Wait until: " + condRef.getDisplayName() + " (" + timeoutMs + "ms)");
                             stepStart = System.currentTimeMillis();
                             inFlight = CompletableFuture.supplyAsync(() -> {
                                 long end = System.currentTimeMillis() + timeoutMs;
@@ -135,13 +159,13 @@ public class ScriptRunner {
                                             if (step.isNegateCondition()) ok = !ok;
                                             if (ok) return true;
                                         } catch (Throwable t) {
-                                            
+                                            log("Condition error: " + t.getClass().getSimpleName());
                                             return false;
                                         }
                                         try { Thread.sleep(100); } catch (InterruptedException ie) { return false; }
                                     }
                                 } catch (Throwable t) {
-                                    
+                                    log("Wait error: " + t.getClass().getSimpleName());
                                     return false;
                                 }
                                 return false;
@@ -149,37 +173,31 @@ public class ScriptRunner {
                                 inFlight = null;
                                 if (!running) return;
                                 if (success) {
-                                    
+                                    if (verbose) log("Condition met: " + condRef.getDisplayName());
                                     index++;
                                 } else if (System.currentTimeMillis() - stepStart > stepTimeoutMs || true) {
-                                    
-                                    
+                                    if (verbose) log("Condition ended: timeout");
+                                    if (loopEnabled) { failureDetected = true; stop(); return; }
                                     index++;
                                 }
                             });
                             break;
                         }
                         Object[] args = coerceArgs(def, step);
-                        if (verbose) {
-                            
-                            
-                            
-                            
-                        }
+                        log("Action: " + prettyAction(def, step, args));
                         Method m = def.getMethod();
                         Method maybeExact = preferExactOverloadIfVarString(def, step);
                         if (maybeExact != null) {
-                            
                             Object[] withExact = java.util.Arrays.copyOf(args, args.length + 1);
                             withExact[withExact.length - 1] = Boolean.TRUE;
                             args = withExact;
                             m = maybeExact;
-                            
+                            if (verbose) log("Using exact overload for variable string");
                         }
                         final Method invokeMethod = m;
                         final Object[] invokeArgs = args;
                         Microbot.status = "Running: " + def.getDisplayName();
-                        
+                        if (verbose) log("Invoke: " + def.getMethod().getName());
                         stepStart = System.currentTimeMillis();
                         inFlight = CompletableFuture.supplyAsync(() -> {
                             try {
@@ -187,20 +205,23 @@ public class ScriptRunner {
                                 if (res instanceof Boolean) return (Boolean) res;
                                 return true;
                             } catch (Throwable t) {
-                                
+                                log("Error: " + t.getClass().getSimpleName());
                                 return false;
                             }
                         }).thenAccept(success -> {
                             inFlight = null;
                             if (!running) return;
-                            
                             if (Boolean.TRUE.equals(success)) {
-                                
+                                log("OK");
                                 index++;
                             } else if (System.currentTimeMillis() - stepStart > stepTimeoutMs) {
                                 Microbot.status = "Step timeout: " + def.getDisplayName();
-                                
+                                log("Timeout: " + def.getDisplayName());
+                                if (loopEnabled) { failureDetected = true; stop(); return; }
                                 index++;
+                            } else {
+                                log("Failed: " + def.getDisplayName());
+                                if (loopEnabled) { failureDetected = true; stop(); return; }
                             }
                         });
                         break;
@@ -210,29 +231,24 @@ public class ScriptRunner {
                         break;
                     }
                     case IF: {
-                        
+                        if (verbose) log("IF " + condDefLabel(step));
                         boolean cond = false;
                         try {
                             BlockDefinition condDef = registry.get(step.getConditionDefinitionId());
                             if (condDef != null) {
                                 Object[] cargs = coerceConditionArgs(condDef, step);
-                                if (verbose) {
-                                    
-                                    
-                                    
-                                    
-                                }
                                 Object res = condDef.getMethod().invoke(null, cargs);
                                 cond = res instanceof Boolean ? (Boolean) res : false;
                             }
                         } catch (Throwable t) {
-                            
+                            log("IF error: " + t.getClass().getSimpleName());
+                            if (loopEnabled) { failureDetected = true; stop(); return; }
                         }
-                        
+                        if (verbose) log("IF result: " + (step.isNegateCondition() ? !cond : cond));
                         if (step.isNegateCondition()) cond = !cond;
                         if (cond) {
                             ifStack.push(index);
-                            
+                            if (verbose) log("IF enter");
                             index++;
                         } else {
                             int jump;
@@ -241,23 +257,23 @@ public class ScriptRunner {
                             } else if (ifToEnd[index] != -1) {
                                 jump = ifToEnd[index] + 1;
                             } else {
-                                
+                                if (verbose) log("IF skip");
                                 jump = Math.min(index + 2, steps.size());
                             }
-                            
+                            if (verbose) log("Jump to " + jump);
                             index = jump;
                         }
                         break;
                     }
                     case ELSE: {
-                        
+                        if (verbose) log("ELSE");
                         int ifIdx = elseToIf[index];
                         if (!ifStack.isEmpty() && ifStack.peek() == ifIdx) {
                             int end = elseToEnd[index] != -1 ? elseToEnd[index] : index + 1;
-                            
+                            if (verbose) log("ELSE jump to " + (end + 1));
                             index = end + 1;
                         } else {
-                            
+                            if (verbose) log("ELSE fallthrough");
                             index++;
                         }
                         break;
@@ -266,6 +282,7 @@ public class ScriptRunner {
                         if (!ifStack.isEmpty() && ifStack.peek() == endToIf[index]) {
                             ifStack.pop();
                         }
+                        if (verbose) log("ENDIF");
                         index++;
                         break;
                     }
@@ -274,12 +291,14 @@ public class ScriptRunner {
                 if (System.currentTimeMillis() - stepStart > stepTimeoutMs) {
                     inFlight.cancel(true);
                     inFlight = null;
-                    
+                    log("Cancelled in-flight step");
+                    if (loopEnabled) { failureDetected = true; stop(); return; }
                     index++;
                 }
             }
         } catch (Throwable t) {
-            
+            log("Runner error: " + t.getClass().getSimpleName());
+            if (loopEnabled) { failureDetected = true; stop(); }
         }
     }
 
@@ -314,6 +333,26 @@ public class ScriptRunner {
             }
         } catch (Throwable ignored) {}
         return null;
+    }
+
+    private String prettyAction(BlockDefinition def, BlockInstance inst, Object[] coercedArgs) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            String group = def.getGroup() != null ? def.getGroup() : "";
+            String methodName = def.getMethod() != null ? def.getMethod().getName() : (def.getDisplayName() != null ? def.getDisplayName() : "");
+            sb.append(group).append(": ").append(methodName).append("(");
+            for (int i = 0; i < def.getParams().size(); i++) {
+                String pname = def.getParams().get(i).getName();
+                Object v = i < coercedArgs.length ? coercedArgs[i] : null;
+                if (i > 0) sb.append(", ");
+                sb.append(pname).append("=");
+                if (v == null) sb.append("null"); else sb.append(String.valueOf(v));
+            }
+            sb.append(")");
+            return sb.toString();
+        } catch (Throwable t) {
+            return def.getDisplayName();
+        }
     }
 
     private Object[] coerceArgs(BlockDefinition def, BlockInstance inst) {

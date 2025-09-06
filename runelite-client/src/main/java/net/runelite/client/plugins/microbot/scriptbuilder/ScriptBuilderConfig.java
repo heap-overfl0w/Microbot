@@ -16,5 +16,24 @@ public interface ScriptBuilderConfig extends Config {
     default boolean enabled() {
         return false;
     }
-}
 
+    @ConfigItem(
+            keyName = "loop",
+            name = "Loop",
+            description = "Enable looping from top to bottom",
+            position = 2
+    )
+    default boolean loop() {
+        return false;
+    }
+
+    @ConfigItem(
+            keyName = "loopDelay",
+            name = "Loop Delay (ms)",
+            description = "Delay before restarting the next loop",
+            position = 3
+    )
+    default int loopDelay() {
+        return 0;
+    }
+}

@@ -1,6 +1,7 @@
 package net.runelite.client.plugins.microbot.scriptbuilder;
 
 import net.runelite.client.plugins.microbot.scriptbuilder.model.BlockDefinition;
+import net.runelite.client.config.ConfigManager;
 import net.runelite.client.plugins.microbot.scriptbuilder.model.BlockParam;
 import net.runelite.client.plugins.microbot.scriptbuilder.model.BlockInstance;
 import net.runelite.client.plugins.microbot.scriptbuilder.registry.BlockRegistry;
@@ -42,16 +43,22 @@ public class ScriptBuilderPanel extends JPanel {
     private JPanel variablesPanel;
     private int pairHighlightIndex = -1;
     private JDialog execDialog;
+    private File currentScriptFile;
+    private JCheckBox loopToggle;
+    private JSpinner loopDelaySpinner;
 
     private final java.util.Deque<java.util.List<BlockInstance>> history = new java.util.ArrayDeque<>();
     private final java.util.Deque<java.util.List<BlockInstance>> redoStack = new java.util.ArrayDeque<>();
     private boolean applyingUndo = false;
     private boolean applyingRedo = false;
 
+    private ConfigManager configManager;
+
     public ScriptBuilderPanel(Object ignoredConfigManager) {
         setLayout(new BorderLayout());
         setBackground(ColorScheme.DARK_GRAY_COLOR);
         setBorder(new EmptyBorder(8, 8, 8, 8));
+        if (ignoredConfigManager instanceof ConfigManager) this.configManager = (ConfigManager) ignoredConfigManager;
 
         availableContainer.setLayout(new BoxLayout(availableContainer, BoxLayout.Y_AXIS));
         availableContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -77,7 +84,6 @@ public class ScriptBuilderPanel extends JPanel {
             groupsPopup.show(categoriesBtn, 0, categoriesBtn.getHeight());
         });
         categoryBar.add(categoriesBtn);
-        // Variables button removed; variables are discoverable via the Variables panel
         categoryBar.add(Box.createHorizontalGlue());
         JButton startBtnTop = new JButton("Start");
         startBtnTop.setFocusPainted(false);
@@ -87,6 +93,19 @@ public class ScriptBuilderPanel extends JPanel {
         stopBtnTop.setFocusPainted(false);
         stopBtnTop.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
         stopBtnTop.addActionListener(e -> runner.stop());
+        loopToggle = new JCheckBox("Loop");
+        loopToggle.setOpaque(false);
+        if (configManager != null) {
+            try {
+                String v = configManager.getConfiguration("scriptbuilder", "loop");
+                if (v != null) loopToggle.setSelected(Boolean.parseBoolean(v));
+            } catch (Exception ignored) {}
+        }
+        loopToggle.addActionListener(e -> {
+            if (configManager != null) {
+                try { configManager.setConfiguration("scriptbuilder", "loop", loopToggle.isSelected()); } catch (Exception ignored) {}
+            }
+        });
 
         Color baseGreen = ColorScheme.PROGRESS_COMPLETE_COLOR.darker();
         Color hoverGreen = ColorScheme.PROGRESS_COMPLETE_COLOR;
@@ -94,6 +113,32 @@ public class ScriptBuilderPanel extends JPanel {
         Color hoverRed = ColorScheme.PROGRESS_ERROR_COLOR;
         styleActionButton(startBtnTop, baseGreen, hoverGreen);
         styleActionButton(stopBtnTop, baseRed, hoverRed);
+
+        JPanel centerControls = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+        centerControls.setOpaque(false);
+        centerControls.add(loopToggle);
+        JLabel delayLbl = new JLabel("Delay (ms):");
+        loopDelaySpinner = new JSpinner(new SpinnerNumberModel(0, 0, 600000, 100));
+        Dimension spSize = new Dimension(90, loopDelaySpinner.getPreferredSize().height);
+        loopDelaySpinner.setPreferredSize(spSize);
+        if (configManager != null) {
+            try {
+                String v = configManager.getConfiguration("scriptbuilder", "loopDelay");
+                if (v != null) {
+                    int d = Integer.parseInt(v);
+                    ((SpinnerNumberModel) loopDelaySpinner.getModel()).setValue(Math.max(0, Math.min(600000, d)));
+                }
+            } catch (Exception ignored) {}
+        }
+        loopDelaySpinner.addChangeListener(e -> {
+            if (configManager != null) {
+                try { configManager.setConfiguration("scriptbuilder", "loopDelay", loopDelaySpinner.getValue()); } catch (Exception ignored) {}
+            }
+        });
+        centerControls.add(delayLbl);
+        centerControls.add(loopDelaySpinner);
+        centerControls.add(startBtnTop);
+        centerControls.add(stopBtnTop);
         JButton saveBtnTop = new JButton("Save");
         saveBtnTop.setFocusPainted(false);
         saveBtnTop.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
@@ -106,8 +151,8 @@ public class ScriptBuilderPanel extends JPanel {
         consoleBtn.setFocusPainted(false);
         consoleBtn.setBorder(BorderFactory.createEmptyBorder(4,8,4,8));
         consoleBtn.addActionListener(e -> openConsoleWindow());
-        categoryBar.add(startBtnTop);
-        categoryBar.add(stopBtnTop);
+        categoryBar.add(centerControls);
+        categoryBar.add(Box.createHorizontalGlue());
         categoryBar.add(saveBtnTop);
         categoryBar.add(loadBtnTop);
         categoryBar.add(consoleBtn);
@@ -1209,15 +1254,11 @@ public class ScriptBuilderPanel extends JPanel {
             return;
         }
         Window owner = SwingUtilities.getWindowAncestor(this);
-        execDialog = new JDialog(owner, "Console", Dialog.ModalityType.MODELESS);
+        execDialog = new JDialog(owner, "", Dialog.ModalityType.MODELESS);
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(new EmptyBorder(8,8,8,8));
-        JLabel title = new JLabel("Console");
-        title.setHorizontalAlignment(SwingConstants.CENTER);
-        title.setFont(title.getFont().deriveFont(Font.BOLD));
         JPanel header = new JPanel(new BorderLayout());
         header.setBackground(ColorScheme.DARK_GRAY_COLOR);
-        header.add(title, BorderLayout.CENTER);
         panel.add(header, BorderLayout.NORTH);
 
         logArea.setEditable(false);
@@ -1467,6 +1508,23 @@ public class ScriptBuilderPanel extends JPanel {
                 scriptModel.add(insertAt + 1, end);
                 scriptList.setSelectedIndex(insertAt);
                 return;
+            } else if (k == BlockInstance.Kind.ELSE) {
+                int sel = scriptList.getSelectedIndex();
+                int contextIdx = sel >= 0 ? sel : Math.max(0, insertAt - 1);
+                int ifIdx = findEnclosingIf(contextIdx);
+                if (ifIdx == -1) {
+                    JOptionPane.showMessageDialog(this, "Place the cursor inside an IF block to add ELSE.");
+                    return;
+                }
+                int endIdx = findMatchingEndIf(ifIdx);
+                if (hasTopLevelElse(ifIdx, endIdx)) {
+                    JOptionPane.showMessageDialog(this, "This IF block already contains an ELSE.");
+                    return;
+                }
+                int ins = Math.min(Math.max(insertAt, ifIdx + 1), endIdx);
+                scriptModel.add(ins, inst);
+                scriptList.setSelectedIndex(ins);
+                return;
             } else {
                 scriptModel.add(insertAt, inst);
             }
@@ -1478,6 +1536,31 @@ public class ScriptBuilderPanel extends JPanel {
             scriptModel.add(insertAt, inst);
         }
         scriptList.setSelectedIndex(insertAt);
+    }
+
+    private int findEnclosingIf(int idx) {
+        int depth = 0;
+        for (int i = idx; i >= 0; i--) {
+            BlockInstance k = scriptModel.get(i);
+            if (k.getKind() == BlockInstance.Kind.ENDIF) depth++;
+            else if (k.getKind() == BlockInstance.Kind.IF) {
+                if (depth == 0) return i;
+                depth--;
+            }
+        }
+        return -1;
+    }
+
+    private boolean hasTopLevelElse(int ifIdx, int endIdx) {
+        if (ifIdx < 0 || endIdx < 0 || endIdx <= ifIdx) return false;
+        int depth = 0;
+        for (int i = ifIdx + 1; i < endIdx; i++) {
+            BlockInstance k = scriptModel.get(i);
+            if (k.getKind() == BlockInstance.Kind.IF) depth++;
+            else if (k.getKind() == BlockInstance.Kind.ENDIF) { if (depth > 0) depth--; }
+            else if (k.getKind() == BlockInstance.Kind.ELSE && depth == 0) return true;
+        }
+        return false;
     }
 
     private void addSelectedFromAnySection() {
@@ -2092,11 +2175,19 @@ private int findMatchingIf(int endIfIdx) {
         List<BlockInstance> list = new ArrayList<>();
         for (int i = 0; i < scriptModel.size(); i++) list.add(scriptModel.get(i));
         runner.load(list);
+        openConsoleWindow();
         runner.setLogSink(s -> SwingUtilities.invokeLater(() -> {
             if (logArea.getText().length() > 100000) logArea.setText("");
             logArea.append(s + "\n");
             logArea.setCaretPosition(logArea.getDocument().getLength());
         }));
+        runner.setLoopEnabled(loopToggle != null && loopToggle.isSelected());
+        try {
+            Object val = loopDelaySpinner != null ? loopDelaySpinner.getValue() : 0;
+            long d = val instanceof Number ? ((Number) val).longValue() : Long.parseLong(String.valueOf(val));
+            if (d < 0) d = 0;
+            runner.setLoopDelayMs(d);
+        } catch (Exception ignored) { runner.setLoopDelayMs(0L); }
         runner.start();
     }
 
@@ -2118,15 +2209,19 @@ private int findMatchingIf(int endIfIdx) {
     }
 
     private void saveScript() {
-        String name = JOptionPane.showInputDialog(this, "Script name");
-        if (name == null || name.trim().isEmpty()) return;
-        File f = new File(ScriptRunner.scriptsDir(), name + ".json");
+        File target = currentScriptFile;
+        if (target == null) {
+            String name = JOptionPane.showInputDialog(this, "Script name");
+            if (name == null || name.trim().isEmpty()) return;
+            target = new File(ScriptRunner.scriptsDir(), name + ".json");
+        }
         try {
             com.google.gson.JsonObject root = buildCombinedJson();
-            try (java.io.FileWriter fw = new java.io.FileWriter(f)) {
+            try (java.io.FileWriter fw = new java.io.FileWriter(target)) {
                 fw.write(new com.google.gson.Gson().toJson(root));
             }
-            JOptionPane.showMessageDialog(this, "Saved: " + f.getAbsolutePath());
+            currentScriptFile = target;
+            JOptionPane.showMessageDialog(this, "Saved: " + target.getAbsolutePath());
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Save failed: " + ex.getMessage());
         }
@@ -2143,6 +2238,7 @@ private int findMatchingIf(int endIfIdx) {
                     scriptModel.clear();
                     for (BlockInstance bi : list) scriptModel.addElement(bi);
                 }
+                currentScriptFile = fc.getSelectedFile();
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "Load failed: " + ex.getMessage());
             }
