@@ -7,6 +7,7 @@ import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.scriptbuilder.model.BlockDefinition;
 import net.runelite.client.plugins.microbot.scriptbuilder.model.BlockInstance;
 import net.runelite.client.plugins.microbot.scriptbuilder.registry.BlockRegistry;
+import net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars;
 
 import java.io.File;
 import java.io.FileReader;
@@ -339,7 +340,7 @@ public class ScriptRunner {
                 try {
                     if (keyToken.startsWith("var:")) keyToken = keyToken.substring(4);
                     String fullKey = keyToken.contains(".") ? keyToken : ("scriptbuilder." + keyToken);
-                    Object v = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.get(fullKey);
+                    Object v = ScriptVars.get(fullKey);
                     if (type == String.class) return v != null ? String.valueOf(v) : null;
                     if (type == int.class || type == Integer.class) {
                         if (v instanceof Number) return ((Number) v).intValue();

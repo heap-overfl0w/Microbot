@@ -9,6 +9,7 @@ import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef;
 import net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType;
 import net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars;
+import net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -417,11 +418,11 @@ public class ScriptBuilderPanel extends JPanel {
             gbc.gridx = 2; gbc.weightx = 0.2; JLabel h2 = headerLabel("Type"); table.add(h2, gbc);
             gbc.gridx = 3; gbc.weightx = 0.2; JLabel h3 = headerLabel("Value(s)"); table.add(h3, gbc);
 
-            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry reg = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey);
-            java.util.List<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> defs = reg.definitions();
+            ScriptVarRegistry reg = ScriptVarRegistry.forKey(scriptVarKey);
+            java.util.List<ScriptVarDef> defs = reg.definitions();
             java.util.Map<Integer, JComponent> editors = new java.util.HashMap<>();
             table.putClientProperty("var_defs", defs);
-            for (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef def : defs) {
+            for (ScriptVarDef def : defs) {
                 String fullKey = scriptVarKey + "." + def.getName();
                 gbc.gridy++;
                 JLabel c0 = cellLabel(def.getLabel() != null ? def.getLabel() : def.getName());
@@ -481,13 +482,13 @@ public class ScriptBuilderPanel extends JPanel {
                     java.util.Map<Integer, JComponent> eds = (java.util.Map<Integer, JComponent>) table.getClientProperty("var_editors");
                     if (eds == null) return;
                     if (colIdx == 0) {
-                    java.util.List<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> ldefs = (java.util.List<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef>) table.getClientProperty("var_defs");
+                    java.util.List<ScriptVarDef> ldefs = (java.util.List<ScriptVarDef>) table.getClientProperty("var_defs");
                         if (ldefs != null && rowIdx >= 0 && rowIdx < ldefs.size()) {
-                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d = ldefs.get(rowIdx);
+                            ScriptVarDef d = ldefs.get(rowIdx);
                             String cur = d.getLabel() != null ? d.getLabel() : d.getName();
                             String input = JOptionPane.showInputDialog(ScriptBuilderPanel.this, "Edit label", cur);
                             if (input != null) {
-                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey).updateLabel(d.getName(), input);
+                                ScriptVarRegistry.forKey(scriptVarKey).updateLabel(d.getName(), input);
                                 Runnable rb = (Runnable) variablesPanel.getClientProperty("vars_rebuild");
                                 if (rb != null) rb.run();
                             }
@@ -698,24 +699,22 @@ public class ScriptBuilderPanel extends JPanel {
         popup.add(addAny);
         popup.add(new JSeparator());
 
-        java.util.List<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> defs =
-                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry
-                        .forKey(scriptVarKey).definitions();
+        java.util.List<ScriptVarDef> defs = ScriptVarRegistry.forKey(scriptVarKey).definitions();
 
         if (defs.isEmpty()) {
             JMenuItem none = new JMenuItem("No variables defined");
             none.setEnabled(false);
             popup.add(none);
         } else {
-            DefaultListModel<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> model = new DefaultListModel<>();
+            DefaultListModel<ScriptVarDef> model = new DefaultListModel<>();
             defs.forEach(model::addElement);
-            JList<net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef> list = new JList<>(model);
+            JList<ScriptVarDef> list = new JList<>(model);
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             list.setVisibleRowCount(-1);
             list.setCellRenderer(new DefaultListCellRenderer() {
                 @Override public Component getListCellRendererComponent(JList<?> l, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                     JLabel c = (JLabel) super.getListCellRendererComponent(l, value, index, isSelected, cellHasFocus);
-                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d = (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef) value;
+                    ScriptVarDef d = (ScriptVarDef) value;
                     String label = d.getLabel() != null && !d.getLabel().isEmpty() ? d.getLabel() : d.getName();
                     c.setText(label + " (" + d.getType().name().toLowerCase() + ")");
                     return c;
@@ -724,7 +723,7 @@ public class ScriptBuilderPanel extends JPanel {
             list.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override public void mouseClicked(java.awt.event.MouseEvent e) {
                     if (e.getClickCount() >= 1) {
-                        net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d = list.getSelectedValue();
+                        ScriptVarDef d = list.getSelectedValue();
                         if (d != null) {
                             String token = "var:" + d.getName();
                             try {
@@ -876,7 +875,7 @@ public class ScriptBuilderPanel extends JPanel {
                 }
 
                 if (root.has("variables") && root.get("variables").isJsonObject()) {
-                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.clear(key);
+                    ScriptVars.clear(key);
                     com.google.gson.JsonObject vars = root.getAsJsonObject("variables");
                     if (vars.has("definitions") && vars.get("definitions").isJsonArray()) {
                         for (com.google.gson.JsonElement el : vars.getAsJsonArray("definitions")) {
@@ -886,20 +885,20 @@ public class ScriptBuilderPanel extends JPanel {
                             String type = d.has("type") ? d.get("type").getAsString() : null;
                             String label = d.has("label") && !d.get("label").isJsonNull() ? d.get("label").getAsString() : (name != null ? name : "");
                             if (name == null || type == null) continue;
-                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType t;
-                            try { t = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType.valueOf(type); } catch (Exception ex) { continue; }
+                            ScriptVarType t;
+                            try { t = ScriptVarType.valueOf(type); } catch (Exception ex) { continue; }
                             switch (t) {
                                 case BOOLEAN: {
                                     boolean dv = d.has("default") && !d.get("default").isJsonNull() && d.get("default").getAsBoolean();
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.bool(name, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.bool(name, dv, label));
                                     break; }
                                 case INTEGER: {
                                     int dv = 0; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsInt(); } catch (Exception ignored) {}
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.integer(name, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.integer(name, dv, label));
                                     break; }
                                 case DOUBLE: {
                                     double dv = 0d; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsDouble(); } catch (Exception ignored) {}
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.dbl(name, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.dbl(name, dv, label));
                                     break; }
                                 case ENUM: {
                                     java.util.List<String> opts = new java.util.ArrayList<>();
@@ -908,12 +907,12 @@ public class ScriptBuilderPanel extends JPanel {
                                     }
                                     String dv = opts.isEmpty() ? "" : opts.get(0);
                                     if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsString();
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.enm(name, opts, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.enm(name, opts, dv, label));
                                     break; }
                                 case STRING:
                                 default: {
                                     String dv = d.has("default") && !d.get("default").isJsonNull() ? d.get("default").getAsString() : "";
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.string(name, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.string(name, dv, label));
                                     break; }
                             }
                         }
@@ -926,11 +925,11 @@ public class ScriptBuilderPanel extends JPanel {
                             if (v == null || v.isJsonNull()) continue;
                             if (v.isJsonPrimitive()) {
                                 com.google.gson.JsonPrimitive p = v.getAsJsonPrimitive();
-                                if (p.isBoolean()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsBoolean());
-                                else if (p.isNumber()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsNumber());
-                                else net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsString());
+                                if (p.isBoolean()) ScriptVars.set(fullKey, p.getAsBoolean());
+                                else if (p.isNumber()) ScriptVars.set(fullKey, p.getAsNumber());
+                                else ScriptVars.set(fullKey, p.getAsString());
                             } else {
-                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, v.getAsString());
+                                ScriptVars.set(fullKey, v.getAsString());
                             }
                         }
                     }
@@ -969,7 +968,7 @@ public class ScriptBuilderPanel extends JPanel {
             String key = scriptVarKey;
             if (root.has("scriptKey") && !root.get("scriptKey").isJsonNull()) key = root.get("scriptKey").getAsString();
             if (root.has("variables") && root.get("variables").isJsonObject()) {
-                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.clear(key);
+                ScriptVars.clear(key);
                 com.google.gson.JsonObject vars = root.getAsJsonObject("variables");
                 if (vars.has("definitions") && vars.get("definitions").isJsonArray()) {
                     for (com.google.gson.JsonElement el : vars.getAsJsonArray("definitions")) {
@@ -979,20 +978,20 @@ public class ScriptBuilderPanel extends JPanel {
                         String type = d.has("type") ? d.get("type").getAsString() : null;
                         String label = d.has("label") && !d.get("label").isJsonNull() ? d.get("label").getAsString() : (name != null ? name : "");
                         if (name == null || type == null) continue;
-                        net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType t;
-                        try { t = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType.valueOf(type); } catch (Exception ex) { continue; }
+                        ScriptVarType t;
+                        try { t = ScriptVarType.valueOf(type); } catch (Exception ex) { continue; }
                         switch (t) {
                             case BOOLEAN: {
                                 boolean dv = d.has("default") && !d.get("default").isJsonNull() && d.get("default").getAsBoolean();
-                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.bool(name, dv, label));
+                                ScriptVars.register(key, ScriptVarDef.bool(name, dv, label));
                                 break; }
                             case INTEGER: {
                                 int dv = 0; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsInt(); } catch (Exception ignored) {}
-                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.integer(name, dv, label));
+                                ScriptVars.register(key, ScriptVarDef.integer(name, dv, label));
                                 break; }
                             case DOUBLE: {
                                 double dv = 0d; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsDouble(); } catch (Exception ignored) {}
-                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.dbl(name, dv, label));
+                                ScriptVars.register(key, ScriptVarDef.dbl(name, dv, label));
                                 break; }
                             case ENUM: {
                                 java.util.List<String> opts = new java.util.ArrayList<>();
@@ -1001,12 +1000,12 @@ public class ScriptBuilderPanel extends JPanel {
                                 }
                                 String dv = opts.isEmpty() ? "" : opts.get(0);
                                 if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsString();
-                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.enm(name, opts, dv, label));
+                                ScriptVars.register(key, ScriptVarDef.enm(name, opts, dv, label));
                                 break; }
                             case STRING:
                             default: {
                                 String dv = d.has("default") && !d.get("default").isJsonNull() ? d.get("default").getAsString() : "";
-                                net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.string(name, dv, label));
+                                ScriptVars.register(key, ScriptVarDef.string(name, dv, label));
                                 break; }
                         }
                     }
@@ -1019,17 +1018,17 @@ public class ScriptBuilderPanel extends JPanel {
                         if (v == null || v.isJsonNull()) continue;
                         if (v.isJsonPrimitive()) {
                             com.google.gson.JsonPrimitive p = v.getAsJsonPrimitive();
-                            if (p.isBoolean()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsBoolean());
-                            else if (p.isNumber()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsNumber());
-                            else net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsString());
+                            if (p.isBoolean()) ScriptVars.set(fullKey, p.getAsBoolean());
+                            else if (p.isNumber()) ScriptVars.set(fullKey, p.getAsNumber());
+                            else ScriptVars.set(fullKey, p.getAsString());
                         } else {
-                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, v.getAsString());
+                            ScriptVars.set(fullKey, v.getAsString());
                         }
                     }
                 }
             }
             // If variables ended up empty (older backups), seed from default.json variables
-            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry reg = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey);
+            ScriptVarRegistry reg = ScriptVarRegistry.forKey(scriptVarKey);
             if (reg.definitions().isEmpty()) {
                 loadVariablesFromDefaultOnly();
             }
@@ -1078,32 +1077,32 @@ public class ScriptBuilderPanel extends JPanel {
                             String type = d.has("type") ? d.get("type").getAsString() : null;
                             String label = d.has("label") && !d.get("label").isJsonNull() ? d.get("label").getAsString() : (name != null ? name : "");
                             if (name == null || type == null) continue;
-                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType t;
-                            try { t = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType.valueOf(type); } catch (Exception ex) { continue; }
+                            ScriptVarType t;
+                            try { t = ScriptVarType.valueOf(type); } catch (Exception ex) { continue; }
                             switch (t) {
                                 case BOOLEAN: {
                                     boolean dv = d.has("default") && !d.get("default").isJsonNull() && d.get("default").getAsBoolean();
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.bool(name, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.bool(name, dv, label));
                                     break; }
                                 case INTEGER: {
                                     int dv = 0; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsInt(); } catch (Exception ignored) {}
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.integer(name, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.integer(name, dv, label));
                                     break; }
                                 case DOUBLE: {
                                     double dv = 0d; try { if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsDouble(); } catch (Exception ignored) {}
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.dbl(name, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.dbl(name, dv, label));
                                     break; }
                                 case ENUM: {
                                     java.util.List<String> opts = new java.util.ArrayList<>();
                                     if (d.has("options") && d.get("options").isJsonArray()) for (com.google.gson.JsonElement oe : d.getAsJsonArray("options")) opts.add(oe.getAsString());
                                     String dv = opts.isEmpty() ? "" : opts.get(0);
                                     if (d.has("default") && !d.get("default").isJsonNull()) dv = d.get("default").getAsString();
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.enm(name, opts, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.enm(name, opts, dv, label));
                                     break; }
                                 case STRING:
                                 default: {
                                     String dv = d.has("default") && !d.get("default").isJsonNull() ? d.get("default").getAsString() : "";
-                                    net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.register(key, net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef.string(name, dv, label));
+                                    ScriptVars.register(key, ScriptVarDef.string(name, dv, label));
                                     break; }
                             }
                         }
@@ -1116,11 +1115,11 @@ public class ScriptBuilderPanel extends JPanel {
                             if (v == null || v.isJsonNull()) continue;
                             if (v.isJsonPrimitive()) {
                                 com.google.gson.JsonPrimitive p = v.getAsJsonPrimitive();
-                            if (p.isBoolean()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsBoolean());
-                            else if (p.isNumber()) net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsNumber());
-                            else net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, p.getAsString());
+                            if (p.isBoolean()) ScriptVars.set(fullKey, p.getAsBoolean());
+                            else if (p.isNumber()) ScriptVars.set(fullKey, p.getAsNumber());
+                            else ScriptVars.set(fullKey, p.getAsString());
                             } else {
-                            net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.set(fullKey, v.getAsString());
+                            ScriptVars.set(fullKey, v.getAsString());
                             }
                         }
                     }
@@ -1139,8 +1138,8 @@ public class ScriptBuilderPanel extends JPanel {
         // variables
         com.google.gson.JsonObject vars = new com.google.gson.JsonObject();
         com.google.gson.JsonArray defs = new com.google.gson.JsonArray();
-        net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry reg = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey);
-        for (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d : reg.definitions()) {
+        ScriptVarRegistry reg = ScriptVarRegistry.forKey(scriptVarKey);
+        for (ScriptVarDef d : reg.definitions()) {
             com.google.gson.JsonObject jd = new com.google.gson.JsonObject();
             jd.addProperty("name", d.getName());
             jd.addProperty("type", d.getType().name());
@@ -1151,7 +1150,7 @@ public class ScriptBuilderPanel extends JPanel {
                 else if (def instanceof Boolean) jd.addProperty("default", (Boolean) def);
                 else jd.addProperty("default", String.valueOf(def));
             }
-            if (d.getType() == net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarType.ENUM && d.getEnumOptions() != null) {
+            if (d.getType() == ScriptVarType.ENUM && d.getEnumOptions() != null) {
                 com.google.gson.JsonArray opts = new com.google.gson.JsonArray();
                 for (String o : d.getEnumOptions()) opts.add(o);
                 jd.add("options", opts);
@@ -1160,9 +1159,9 @@ public class ScriptBuilderPanel extends JPanel {
         }
         vars.add("definitions", defs);
         com.google.gson.JsonObject values = new com.google.gson.JsonObject();
-        for (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d : reg.definitions()) {
+        for (ScriptVarDef d : reg.definitions()) {
             String fullKey = scriptVarKey + "." + d.getName();
-            Object v = net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVars.get(fullKey);
+                    Object v = ScriptVars.get(fullKey);
             if (v == null) continue;
             if (v instanceof Number) values.addProperty(d.getName(), (Number) v);
             else if (v instanceof Boolean) values.addProperty(d.getName(), (Boolean) v);
@@ -1961,7 +1960,7 @@ private int findMatchingIf(int endIfIdx) {
     private JComboBox<String> variableSelectorFor(ScriptVarType t) {
         java.util.List<String> items = new java.util.ArrayList<>();
         items.add("Custom");
-        for (net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarDef d : net.runelite.client.plugins.microbot.scriptbuilder.variables.ScriptVarRegistry.forKey(scriptVarKey).definitions()) {
+        for (ScriptVarDef d : ScriptVarRegistry.forKey(scriptVarKey).definitions()) {
             if (d.getType() == t) items.add(d.getName());
         }
         JComboBox<String> box = new JComboBox<>(items.toArray(new String[0]));
